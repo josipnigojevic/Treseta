@@ -701,18 +701,15 @@ input:focus {
 }
 
 .playing-card {
-  width: 80px;
-  height: 116px;
+  width: 72px;
+  height: 131px;
   position: relative;
   flex: 0 0 auto;
   overflow: hidden;
-  color: #24251f;
-  border: 1px solid #d1c6ad;
-  border-radius: 9px;
-  background:
-    linear-gradient(135deg, rgba(213, 168, 75, 0.07), transparent 32%),
-    var(--paper);
-  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.3), inset 0 0 0 3px #f6eddc;
+  border: 1px solid rgba(34, 28, 20, 0.42);
+  border-radius: 7px;
+  background: #f8f6ed;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.38);
   transform-origin: 50% 100%;
 }
 
@@ -721,73 +718,19 @@ button.playing-card {
   cursor: default;
 }
 
-.playing-card .corner {
+.card-artwork {
   position: absolute;
-  left: 7px;
-  top: 5px;
-  z-index: 2;
-  font-family: Georgia, serif;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.playing-card .corner.bottom {
-  left: auto;
-  right: 7px;
-  top: auto;
-  bottom: 5px;
-  transform: rotate(180deg);
-}
-
-.playing-card .mini-suit {
-  width: 12px;
-  height: 12px;
+  inset: -1px;
   display: block;
-  margin-top: 3px;
-}
-
-.playing-card .card-art {
-  width: 50px;
-  height: 68px;
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.playing-card.suit-coins {
-  color: #ae7624;
-}
-
-.playing-card.suit-cups {
-  color: var(--red);
-}
-
-.playing-card.suit-swords {
-  color: var(--blue);
-}
-
-.playing-card.suit-clubs {
-  color: #43653d;
-}
-
-.playing-card.face::after {
-  content: "";
-  width: 38px;
-  height: 46px;
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  border: 1px solid currentColor;
-  border-radius: 50% 50% 9px 9px;
-  opacity: 0.16;
-  transform: translate(-50%, -50%);
+  background-image: url("/assets/cards/triestine-sprite.png");
+  background-repeat: no-repeat;
+  background-position: var(--art-x) var(--art-y);
+  background-size: 1000% 400%;
 }
 
 .trick-slot .playing-card {
-  width: 74px;
-  height: 106px;
+  width: 64px;
+  height: 116px;
   animation: card-arrive 0.3s ease-out both;
 }
 
@@ -1277,24 +1220,13 @@ button.playing-card {
 
   .trick-slot,
   .trick-slot .playing-card {
-    width: 62px;
-    height: 89px;
+    width: 56px;
+    height: 102px;
   }
 
   .playing-card {
-    width: 68px;
-    height: 99px;
-  }
-
-  .playing-card .corner {
-    left: 5px;
-    top: 4px;
-    font-size: 14px;
-  }
-
-  .playing-card .card-art {
-    width: 43px;
-    height: 58px;
+    width: 60px;
+    height: 109px;
   }
 
   .table-message {
@@ -1334,9 +1266,9 @@ button.playing-card {
   }
 
   .player-hand .playing-card {
-    width: 64px;
-    height: 94px;
-    margin-left: -30px;
+    width: 60px;
+    height: 109px;
+    margin-left: -29px;
   }
 
   .player-hand .playing-card:first-child {
@@ -1381,7 +1313,7 @@ button.playing-card {
   }
 
   .playing-card {
-    width: 70px;
-    height: 102px;
+    width: 64px;
+    height: 116px;
   }
 }

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Triestine card samples</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { min-height: 100%; margin: 0; }
+      body {
+        display: grid;
+        place-items: center;
+        padding: 38px;
+        color: #f3ead7;
+        background:
+          radial-gradient(circle at 50% 20%, #215b48, transparent 48%),
+          #071814;
+        font-family: system-ui, sans-serif;
+      }
+      main { text-align: center; }
+      h1 {
+        margin: 0 0 7px;
+        font: 500 31px Georgia, serif;
+      }
+      p {
+        margin: 0 0 25px;
+        color: #a9bbb4;
+        font-size: 11px;
+        letter-spacing: .13em;
+        text-transform: uppercase;
+      }
+      .cards {
+        display: flex;
+        justify-content: center;
+        gap: 18px;
+      }
+      .card {
+        width: 122px;
+        height: 221px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,.32);
+        border-radius: 10px;
+        background-image: url("/assets/cards/triestine-sprite.png");
+        background-repeat: no-repeat;
+        background-size: 1000% 400%;
+        background-position: var(--x) var(--y);
+        box-shadow: 0 17px 32px rgba(0,0,0,.38);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Traditional Triestine cards</h1>
+      <p>A small sample from the 40-card deck now used in game</p>
+      <div class="cards" aria-label="Four representative Triestine cards">
+        <div class="card" style="--x:0%;--y:0%" title="Ace of Swords"></div>
+        <div class="card" style="--x:33.333%;--y:33.333%" title="Horse of Cups"></div>
+        <div class="card" style="--x:22.222%;--y:66.667%" title="King of Coins"></div>
+        <div class="card" style="--x:11.111%;--y:100%" title="Three of Batons"></div>
+      </div>
+    </main>
+  </body>
+</html>

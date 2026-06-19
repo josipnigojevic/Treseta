@@ -56,7 +56,8 @@ npm run test:integration
   turns, declarations, tricks, and match progression.
 - `src/rules/cards.js` defines and deals the 40-card deck.
 - `src/rules/treseta.js` contains follow-suit, trick, scoring, and akuža rules.
-- `public/` contains the responsive UI and procedural SVG/CSS cards.
+- `public/` contains the responsive UI and a locally hosted, freely licensed
+  Triestine-pattern card sprite.
 - `tests/rules.test.js` checks deck integrity, dealing, legal play, trick
   winners, scoring, declarations, and hidden-hand serialization.
 
@@ -73,3 +74,12 @@ seat so a live game is not permanently stranded. Rooms with no connected
 players are removed after 30 minutes.
 
 Active rooms are held in memory and are lost when the server restarts.
+
+## Card artwork
+
+The game uses the traditional Triestine pattern commonly played on the
+Croatian and Slovenian coast. The sprite is based on
+[Tršćanske karte.png](https://commons.wikimedia.org/wiki/File:Tr%C5%A1%C4%87anske_karte.png)
+by Wikimedia Commons user CCCKKK, licensed under
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Full asset
+attribution is included in `public/assets/cards/LICENSE.md`.

@@ -138,30 +138,33 @@ function emitIntent(event, payload = {}) {
   });
 }
 
-function suitSvg(suit, className = "card-art") {
-  const common = `class="${className}" viewBox="0 0 60 80" aria-hidden="true"`;
-  if (suit === "coins") {
-    return `<svg ${common}><circle cx="30" cy="40" r="21" fill="none" stroke="currentColor" stroke-width="6"/><circle cx="30" cy="40" r="11" fill="currentColor" opacity=".28"/><path d="M30 19v42M9 40h42" stroke="currentColor" stroke-width="2" opacity=".55"/></svg>`;
-  }
-  if (suit === "cups") {
-    return `<svg ${common}><path d="M13 15h34l-4 25c-1 10-7 16-13 16s-12-6-13-16z" fill="currentColor" opacity=".22"/><path d="M13 15h34l-4 25c-1 10-7 16-13 16s-12-6-13-16zM30 56v10M20 68h20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>`;
-  }
-  if (suit === "swords") {
-    return `<svg ${common}><path d="M16 64L43 11l2 3-23 54z" fill="currentColor"/><path d="M14 56l15 8M13 69l8-9" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><path d="M44 11l2 10-7-4z" fill="currentColor" opacity=".55"/></svg>`;
-  }
-  return `<svg ${common}><g transform="rotate(-35 30 40)"><rect x="24" y="7" width="12" height="66" rx="6" fill="currentColor"/><path d="M22 18l16 10M22 33l16 10M22 48l16 10" stroke="white" stroke-width="2" opacity=".45"/></g></svg>`;
+const cardArtRows = { swords: 0, cups: 1, coins: 2, clubs: 3 };
+const cardArtColumns = {
+  ace: 0,
+  "3": 1,
+  king: 2,
+  horse: 3,
+  jack: 4,
+  "7": 5,
+  "6": 6,
+  "5": 7,
+  "4": 8,
+  "2": 9,
+};
+
+function cardArtStyle(card) {
+  const column = cardArtColumns[card.rank];
+  const row = cardArtRows[card.suit];
+  return `--art-x:${(column / 9) * 100}%;--art-y:${(row / 3) * 100}%`;
 }
 
 function createCard(card, mode = "hand", isPlayable = false, isMyTurn = false) {
   const button = document.createElement(mode === "hand" ? "button" : "div");
-  const face = ["jack", "horse", "king"].includes(card.rank) ? " face" : "";
-  button.className = `playing-card suit-${card.suit}${face}`;
+  button.className = `playing-card suit-${card.suit}`;
   button.setAttribute("aria-label", `${card.label} ${card.suit}`);
-  button.innerHTML = `
-    <span class="corner">${card.label}${suitSvg(card.suit, "mini-suit")}</span>
-    ${suitSvg(card.suit)}
-    <span class="corner bottom">${card.label}${suitSvg(card.suit, "mini-suit")}</span>
-  `;
+  button.innerHTML = `<span class="card-artwork" style="${cardArtStyle(
+    card
+  )}" aria-hidden="true"></span>`;
 
   if (mode === "hand") {
     button.type = "button";
