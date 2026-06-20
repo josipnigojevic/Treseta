@@ -272,6 +272,7 @@ async function run() {
       mode: "seres_u_manje",
       playerCount: 3,
       ranked: false,
+      challengeSeconds: 5,
     },
   });
   const seresCode = seresCreated.code;
@@ -305,7 +306,6 @@ async function run() {
 
   const leaderSeat = states[9].game.turnSeat;
   const accusedSeat = (leaderSeat + 1) % 3;
-  const callerSeat = (accusedSeat + 1) % 3;
   const leaderHand = states[9 + leaderSeat].me.hand;
   const accusedHand = states[9 + accusedSeat].me.hand;
   let leaderCard;
@@ -338,6 +338,14 @@ async function run() {
     (await intent(clients[9 + accusedSeat], "playCard", { cardId: accusedCard.id })).ok,
     true
   );
+  await waitUntil(() => states[9].game.seresOpportunity?.currentResponderSeat !== null);
+  const firstResponder = states[9].game.seresOpportunity.currentResponderSeat;
+  await waitUntil(
+    () =>
+      states[9].game.seresOpportunity?.currentResponderSeat !== firstResponder,
+    7000
+  );
+  const callerSeat = states[9].game.seresOpportunity.currentResponderSeat;
   await waitUntil(() => states[9 + callerSeat].me.canCallSeres === true);
   assert.strictEqual(
     (await intent(clients[9 + callerSeat], "callSeres", { context: "trick_play" })).ok,
@@ -347,7 +355,7 @@ async function run() {
   const punishedSeat = accusedWasLying ? accusedSeat : callerSeat;
   assert.strictEqual(states[9].game.playerScores[punishedSeat].thirds, 33);
   assert.strictEqual(states[9].game.status, "akuza");
-  console.log("✓ three-player Sereš mode deals, skips akuža, allows off-suit play, and redeals after Sereš");
+  console.log("✓ three-player Sereš mode times out to the next challenger and redeals after Sereš");
 
   [9, 10, 11].forEach((index) => clients[index]?.disconnect());
 

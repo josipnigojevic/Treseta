@@ -175,6 +175,23 @@ function passWholeAkuzaPhase(room, tokens) {
   }
 }
 
+function continueWholeAkuzaChallenge(room, tokens) {
+  while (room.game.akuzaPhase?.pendingDeclaration) {
+    const seat =
+      room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+    room.respondAkuza(tokens[seat], "continue");
+  }
+}
+
+function continueWholeTrickChallenge(room, tokens) {
+  let result = null;
+  while (room.game.seresOpportunity) {
+    const seat = room.game.seresOpportunity.currentResponderSeat;
+    result = room.continueSeres(tokens[seat]);
+  }
+  return result;
+}
+
 test("new mode is separate, supports 3–5 players, and starts with an akuža phase", () => {
   [3, 4, 5].forEach((playerCount) => {
     const { room } = makeSeresRoom(playerCount);
@@ -186,6 +203,26 @@ test("new mode is separate, supports 3–5 players, and starts with an akuža ph
     const publicState = room.publicState();
     assert.strictEqual(Object.prototype.hasOwnProperty.call(publicState.game, "discard"), false);
   });
+});
+
+test("Sereš response time is configurable from 5 to 60 seconds", () => {
+  const shortRoom = new Room("SHORT", "Ana", "socket", {
+    mode: "seres_u_manje",
+    playerCount: 3,
+    challengeSeconds: 1,
+  });
+  const longRoom = new Room("LONG", "Ana", "socket", {
+    mode: "seres_u_manje",
+    playerCount: 3,
+    challengeSeconds: 90,
+  });
+  const defaultRoom = new Room("DEFAULT", "Ana", "socket", {
+    mode: "seres_u_manje",
+    playerCount: 3,
+  });
+  assert.strictEqual(shortRoom.settings.challengeSeconds, 5);
+  assert.strictEqual(longRoom.settings.challengeSeconds, 60);
+  assert.strictEqual(defaultRoom.settings.challengeSeconds, 10);
 });
 
 test("ranked Sereš u Manje has its own ranking key and requires accounts", () => {
@@ -230,6 +267,7 @@ test("Sereš u Manje permits any suit but led-suit strength still wins the trick
   room.playCard(tokens[0], "cups-4");
   assert.ok(room.stateFor(tokens[1]).me.playableIds.includes("coins-3"));
   room.playCard(tokens[1], "coins-3");
+  continueWholeTrickChallenge(room, tokens);
   const result = room.playCard(tokens[2], "cups-2");
   assert.strictEqual(result.winnerSeat, 2);
 });
@@ -241,11 +279,18 @@ test("akuža is turn-based, may be fake, waits for everyone, and subtracts point
   assert.throws(() => room.declareAkuza(tokens[wrongSeat], "rank-ace-3"));
   room.declareAkuza(tokens[declarerSeat], "rank-ace-3");
   assert.throws(() => room.declareAkuza(tokens[wrongSeat], "rank-2-3"));
-  const responders = [0, 1, 2].filter((seat) => seat !== declarerSeat);
-  room.respondAkuza(tokens[responders[0]], "continue");
+  const firstResponder =
+    room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+  const wrongResponder = [0, 1, 2].find(
+    (seat) => seat !== declarerSeat && seat !== firstResponder
+  );
+  assert.throws(() => room.respondAkuza(tokens[wrongResponder], "continue"));
+  room.respondAkuza(tokens[firstResponder], "continue");
   assert.ok(room.game.akuzaPhase.pendingDeclaration);
-  assert.throws(() => room.respondAkuza(tokens[responders[0]], "continue"));
-  room.respondAkuza(tokens[responders[1]], "continue");
+  assert.throws(() => room.respondAkuza(tokens[firstResponder], "continue"));
+  const secondResponder =
+    room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+  room.respondAkuza(tokens[secondResponder], "continue");
   assert.strictEqual(room.game.playerScoresThirds[declarerSeat], -9);
   assert.strictEqual(room.game.akuzaPhase.pendingDeclaration, null);
   assert.notStrictEqual(room.game.akuzaPhase.currentPlayerSeat, declarerSeat);
@@ -314,12 +359,64 @@ test("incorrect trick-play Sereš punishes the caller", () => {
   assert.strictEqual(room.game.handNumber, 2);
 });
 
-test("the Sereš window expires as soon as the next card is played", () => {
+test("every eligible player receives a sequential Sereš window before the next card", () => {
   const { room, tokens } = makeSeresRoom(3);
   prepareOffSuitChallenge(room, tokens, false);
   room.game.hands[2] = [card("cups", "6")];
+  assert.strictEqual(room.game.turnSeat, null);
+  assert.throws(() => room.playCard(tokens[2], "cups-6"));
+  const firstResponder = room.game.seresOpportunity.currentResponderSeat;
+  room.continueSeres(tokens[firstResponder]);
+  assert.ok(room.game.seresOpportunity);
+  assert.notStrictEqual(
+    room.game.seresOpportunity.currentResponderSeat,
+    firstResponder
+  );
+  continueWholeTrickChallenge(room, tokens);
+  assert.strictEqual(room.game.turnSeat, 2);
   room.playCard(tokens[2], "cups-6");
   assert.throws(() => room.callSeres(tokens[0], "trick_play"));
+});
+
+test("expired challenge windows default to Continue and advance responders", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  prepareOffSuitChallenge(room, tokens, false);
+  const firstResponder = room.game.seresOpportunity.currentResponderSeat;
+  const firstDeadline = room.game.seresOpportunity.deadlineAt;
+  const result = room.continueExpiredChallenge(firstDeadline);
+  assert.strictEqual(result.timedOutSeat, firstResponder);
+  assert.ok(room.game.seresOpportunity);
+  assert.notStrictEqual(
+    room.game.seresOpportunity.currentResponderSeat,
+    firstResponder
+  );
+});
+
+test("a later player may call trick-play Sereš after the next player Continues", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  prepareOffSuitChallenge(room, tokens, true);
+  const firstResponder = room.game.seresOpportunity.currentResponderSeat;
+  room.continueSeres(tokens[firstResponder]);
+  const laterResponder = room.game.seresOpportunity.currentResponderSeat;
+  room.callSeres(tokens[laterResponder], "trick_play");
+  assert.strictEqual(room.game.playerScoresThirds[1], 33);
+  assert.strictEqual(room.game.lastHandResult.callerSeat, laterResponder);
+});
+
+test("akuža response timers advance by default and later players can challenge", () => {
+  const { room, tokens } = makeSeresRoom(4);
+  const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.game.hands[declarerSeat] = [card("cups", "4")];
+  room.declareAkuza(tokens[declarerSeat], "rank-ace-3");
+  const pending = room.game.akuzaPhase.pendingDeclaration;
+  const firstResponder = pending.currentResponderSeat;
+  room.continueExpiredChallenge(pending.deadlineAt);
+  const laterResponder =
+    room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+  assert.notStrictEqual(laterResponder, firstResponder);
+  room.callSeres(tokens[laterResponder], "akuza");
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], 33);
+  assert.strictEqual(room.game.lastHandResult.callerSeat, laterResponder);
 });
 
 test("Sereš rejects self-challenges and calls without an active opportunity", () => {
@@ -334,9 +431,7 @@ test("a normal hand awards trick points, preserves akuža deductions, and auto-d
   const { room, tokens } = makeSeresRoom(3);
   const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
   room.declareAkuza(tokens[declarerSeat], "rank-ace-3");
-  [0, 1, 2]
-    .filter((seat) => seat !== declarerSeat)
-    .forEach((seat) => room.respondAkuza(tokens[seat], "continue"));
+  continueWholeAkuzaChallenge(room, tokens);
   while (room.game.status === "akuza") {
     room.passAkuza(tokens[room.game.akuzaPhase.currentPlayerSeat]);
   }
@@ -351,6 +446,7 @@ test("a normal hand awards trick points, preserves akuža deductions, and auto-d
   room.playCard(tokens[0], "cups-ace");
   room.playCard(tokens[1], "cups-4");
   room.playCard(tokens[2], "coins-3");
+  continueWholeTrickChallenge(room, tokens);
   room.resolvePendingTrick();
   assert.strictEqual(room.game.handNumber, 2);
   assert.strictEqual(room.game.status, "akuza");
@@ -384,6 +480,7 @@ test("reaching 41 from resolved trick points ends the match immediately", () => 
   room.playCard(tokens[0], "cups-ace");
   room.playCard(tokens[1], "cups-4");
   room.playCard(tokens[2], "coins-4");
+  continueWholeTrickChallenge(room, tokens);
   room.resolvePendingTrick();
   assert.strictEqual(room.game.status, "matchEnd");
   assert.strictEqual(room.game.loserSeat, 0);

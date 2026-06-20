@@ -16,6 +16,8 @@ const io = new Server(server, {
 });
 const rooms = new RoomManager();
 const accounts = new AccountStore();
+const challengeTimers = new Map();
+const trickTimers = new Map();
 
 app.use(express.json({ limit: "16kb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -89,6 +91,61 @@ function emitRoom(room) {
   });
 }
 
+function schedulePendingTrickResolution(room) {
+  if (!room.game.pendingTrick) return;
+  const key = `${room.game.handNumber}:${room.game.pendingTrick.trickNumber}`;
+  if (trickTimers.get(room.code)?.key === key) return;
+  const previous = trickTimers.get(room.code);
+  if (previous) clearTimeout(previous.timer);
+  const timer = setTimeout(() => {
+    trickTimers.delete(room.code);
+    const currentRoom = rooms.get(room.code);
+    if (!currentRoom || currentRoom !== room || !room.game.pendingTrick) return;
+    const resolution = room.resolvePendingTrick();
+    if (resolution?.handFinished) {
+      console.log(
+        `[room ${room.code}] hand ${room.game.handNumber} result ${JSON.stringify(
+          room.game.handBreakdown
+        )}`
+      );
+    }
+    if (room.game.status === "matchEnd") recordCompletedMatch(room);
+    emitRoom(room);
+    scheduleRoomChallenge(room);
+  }, TRICK_DELAY_MS);
+  trickTimers.set(room.code, { key, timer });
+}
+
+function scheduleRoomChallenge(room) {
+  const previous = challengeTimers.get(room.code);
+  if (previous) clearTimeout(previous.timer);
+  challengeTimers.delete(room.code);
+
+  const deadline = room.challengeDeadline();
+  if (!deadline) return;
+  const timer = setTimeout(() => {
+    challengeTimers.delete(room.code);
+    const currentRoom = rooms.get(room.code);
+    if (!currentRoom || currentRoom !== room) return;
+    if (room.challengeDeadline() !== deadline) {
+      scheduleRoomChallenge(room);
+      return;
+    }
+    const result = room.continueExpiredChallenge(Date.now());
+    if (!result) {
+      scheduleRoomChallenge(room);
+      return;
+    }
+    if (result.complete && room.game.pendingTrick) {
+      schedulePendingTrickResolution(room);
+    }
+    if (room.game.status === "matchEnd") recordCompletedMatch(room);
+    emitRoom(room);
+    scheduleRoomChallenge(room);
+  }, Math.max(0, deadline - Date.now()) + 5);
+  challengeTimers.set(room.code, { deadline, timer });
+}
+
 function withSession(socket, callback, action) {
   try {
     const session = socket.data.session;
@@ -96,6 +153,10 @@ function withSession(socket, callback, action) {
     const room = rooms.get(session.code);
     if (!room) throw new Error("Soba više ne postoji.");
     const value = action(room, session);
+    if (value?.complete && room.game.pendingTrick) {
+      schedulePendingTrickResolution(room);
+    }
+    scheduleRoomChallenge(room);
     if (room.game.status === "matchEnd") recordCompletedMatch(room);
     emitRoom(room);
     callbackResult(callback, { ok: true, value });
@@ -232,6 +293,14 @@ io.on("connection", (socket) => {
     })
   );
 
+  socket.on("continueSeres", (_payload, callback) =>
+    withSession(socket, callback, (room, session) => {
+      const result = room.continueSeres(session.token);
+      console.log(`[room ${room.code}] trick Sereš response Continue`);
+      return result;
+    })
+  );
+
   socket.on("signal", (payload = {}, callback) =>
     withSession(socket, callback, (room, session) => {
       const result = room.signal(session.token, payload.type);
@@ -245,22 +314,7 @@ io.on("connection", (socket) => {
       console.log(
         `[room ${room.code}] ${result.player.nickname} played ${result.card.id}`
       );
-      if (result.complete) {
-        setTimeout(() => {
-          const currentRoom = rooms.get(room.code);
-          if (!currentRoom || currentRoom !== room) return;
-          const resolution = room.resolvePendingTrick();
-          if (resolution?.handFinished) {
-            console.log(
-              `[room ${room.code}] hand ${room.game.handNumber} result ${JSON.stringify(
-                room.game.handBreakdown
-              )}`
-            );
-          }
-          if (room.game.status === "matchEnd") recordCompletedMatch(room);
-          emitRoom(room);
-        }, TRICK_DELAY_MS);
-      }
+      return result;
     })
   );
 

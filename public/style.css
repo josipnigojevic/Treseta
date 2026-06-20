@@ -262,6 +262,35 @@ select {
   margin-bottom: 17px;
 }
 
+.challenge-time-field {
+  grid-column: 1 / -1;
+}
+
+.range-setting {
+  display: grid;
+  grid-template-columns: 1fr 52px;
+  align-items: center;
+  gap: 12px;
+}
+
+.range-setting input[type="range"] {
+  height: 6px;
+  padding: 0;
+  accent-color: #24725a;
+  border: 0;
+  box-shadow: none;
+}
+
+.range-setting output {
+  padding: 7px 8px;
+  color: #2b2414;
+  border-radius: 7px;
+  background: var(--gold-light);
+  font-size: 12px;
+  font-weight: 850;
+  text-align: center;
+}
+
 .setting-row {
   display: flex;
   flex-wrap: wrap;

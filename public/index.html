@@ -73,6 +73,20 @@
                     <option value="5">5 igrača</option>
                   </select>
                 </label>
+                <label class="challenge-time-field">
+                  <span>Vrijeme za Continue / Sereš</span>
+                  <div class="range-setting">
+                    <input
+                      id="challengeSecondsSetting"
+                      type="range"
+                      min="5"
+                      max="60"
+                      step="1"
+                      value="10"
+                    />
+                    <output id="challengeSecondsValue">10 s</output>
+                  </div>
+                </label>
               </div>
               <div class="setting-row">
                 <label class="switch-label ranked-switch">
@@ -225,7 +239,7 @@
           </div>
           <select id="akuzaClaimSelect"></select>
           <button id="seresDeclareButton" class="button gold">Prijavi akužu</button>
-          <button id="passAkuzaButton" class="button secondary">Continue / Pass</button>
+          <button id="passAkuzaButton" class="button gold">Continue / Pass</button>
         </div>
 
         <div id="akuzaResponseBar" class="declaration-bar seres-action-bar hidden">
@@ -233,12 +247,13 @@
             <span>Otvorena akuža</span>
             <strong id="pendingAkuzaDescription"></strong>
           </div>
-          <button id="continueAkuzaButton" class="button secondary">Continue</button>
+          <button id="continueAkuzaButton" class="button gold">Continue</button>
           <button id="seresAkuzaButton" class="button danger">Sereš</button>
         </div>
 
         <div id="seresTrickBar" class="seres-trick-bar hidden">
           <span id="seresTrickDescription"></span>
+          <button id="continueSeresButton" class="button gold">Continue</button>
           <button id="seresTrickButton" class="button danger">Sereš</button>
         </div>
 

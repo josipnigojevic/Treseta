@@ -47,6 +47,12 @@ function normalizePlayerCount(mode, value) {
   return Math.min(config.maxPlayers, Math.max(config.minPlayers, parsed));
 }
 
+function normalizeChallengeSeconds(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 10;
+  return Math.min(60, Math.max(5, Math.round(parsed)));
+}
+
 module.exports = {
   GAME_MODE_CLASSIC,
   GAME_MODE_SERES_U_MANJE,
@@ -54,4 +60,5 @@ module.exports = {
   normalizeMode,
   modeConfig,
   normalizePlayerCount,
+  normalizeChallengeSeconds,
 };

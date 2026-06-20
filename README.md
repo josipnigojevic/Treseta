@@ -84,8 +84,15 @@ npm run test:integration
   Sereš before the next akuža turn begins.
 - An accepted akuža subtracts its value from the declarer's score. Scores may
   go below zero.
-- After an off-suit card, other players may immediately call Sereš before the
-  next card is played. The server checks the accused player's hidden hand.
+- After an off-suit card, play pauses and every other player receives a
+  sequential Continue/Sereš response turn. The response time is configurable
+  from 5 to 60 seconds when the room is created (10 seconds by default).
+- An unanswered response turn automatically becomes Continue. Only after every
+  eligible player Continues may the next card be played.
+- Akuža challenges use the same sequential timed response flow before the next
+  akuža declaration is allowed.
+- If any eligible responder calls Sereš, the server checks the accused
+  player's hidden hand.
 - A correct Sereš gives the liar 11 points; an incorrect Sereš gives the caller
   11 points. The same rule applies to challenged akuža declarations.
 - Every Sereš ends the current hand immediately. If nobody reached 41, the

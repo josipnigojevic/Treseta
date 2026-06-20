@@ -17,6 +17,8 @@ const elements = {
   seresSetup: $("#seresSetup"),
   seresMatchType: $("#seresMatchType"),
   playerCountSetting: $("#playerCountSetting"),
+  challengeSecondsSetting: $("#challengeSecondsSetting"),
+  challengeSecondsValue: $("#challengeSecondsValue"),
   rankedNote: $("#rankedNote"),
   spectate: $("#spectateInput"),
   roomCode: $("#roomCodeLabel"),
@@ -113,6 +115,36 @@ function formatThirds(thirds) {
   const whole = Math.floor(absolute / 3);
   const remainder = absolute % 3;
   return `${sign}${whole}${remainder ? ` ${remainder}/3` : ""}`;
+}
+
+function challengeSecondsLeft(deadlineAt) {
+  if (!deadlineAt) return 0;
+  return Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000));
+}
+
+function updateChallengeCountdown() {
+  if (!currentState || !isSeresMode(currentState)) return;
+  const pending = currentState.game.akuzaPhase?.pendingDeclaration;
+  if (pending && currentState.me.canRespondAkuza) {
+    const declarer = currentState.players[pending.declarerSeat];
+    elements.pendingAkuzaDescription.textContent = `${
+      declarer?.nickname || "Igrač"
+    } declared ${pending.label}. Continue or call Sereš · ${challengeSecondsLeft(
+      pending.deadlineAt
+    )} s`;
+  }
+  const opportunity = currentState.game.seresOpportunity;
+  if (
+    opportunity &&
+    (currentState.me.canCallSeres || currentState.me.canContinueSeres)
+  ) {
+    const accused = currentState.players[opportunity.accusedSeat];
+    elements.seresTrickDescription.textContent = `${
+      accused?.nickname || "Igrač"
+    } nije pratio led suit · ${challengeSecondsLeft(
+      opportunity.deadlineAt
+    )} s za Continue ili Sereš`;
+  }
 }
 
 function loadSessions() {
@@ -402,6 +434,9 @@ function createRoom() {
       settings: {
         mode: selectedMode(),
         playerCount: isSeresMode() ? Number(elements.playerCountSetting.value) : 4,
+        challengeSeconds: isSeresMode()
+          ? Number(elements.challengeSecondsSetting.value)
+          : undefined,
         ranked: selectedRanked(),
         akuza: elements.akuzaSetting.checked,
         signals: elements.signalsSetting.checked,
@@ -573,6 +608,12 @@ function renderHand(state) {
     elements.handHint.textContent = currentPlayer
       ? `Akuža phase · na redu je ${currentPlayer.nickname}`
       : "Čekaju se Continue / Sereš odgovori";
+  } else if (state.game.seresOpportunity) {
+    const responder =
+      state.players[state.game.seresOpportunity.currentResponderSeat];
+    elements.handHint.textContent = responder
+      ? `${responder.nickname} odlučuje: Continue ili Sereš`
+      : "Čeka se odgovor";
   } else if (state.game.pendingTrick) elements.handHint.textContent = "Trick se sprema…";
   else if (myTurn) elements.handHint.textContent = "Vi ste na redu — odaberite osvijetljenu kartu";
   else if (state.game.status === "playing") {
@@ -621,18 +662,14 @@ function renderAkuza(state) {
   const pending = state.game.akuzaPhase?.pendingDeclaration;
   elements.akuzaResponseBar.classList.toggle("hidden", !state.me.canRespondAkuza);
   if (pending && state.me.canRespondAkuza) {
-    const declarer = state.players[pending.declarerSeat];
-    elements.pendingAkuzaDescription.textContent = `${
-      declarer?.nickname || "Igrač"
-    } declared ${pending.label}. Continue or call Sereš.`;
+    updateChallengeCountdown();
   }
 
-  elements.seresTrickBar.classList.toggle("hidden", !state.me.canCallSeres);
-  if (state.me.canCallSeres) {
-    const accused = state.players[state.game.seresOpportunity.accusedSeat];
-    elements.seresTrickDescription.textContent = `${
-      accused?.nickname || "Igrač"
-    } nije pratio led suit. Pozvati Sereš?`;
+  const canRespondToTrick =
+    state.me.canCallSeres || state.me.canContinueSeres;
+  elements.seresTrickBar.classList.toggle("hidden", !canRespondToTrick);
+  if (canRespondToTrick) {
+    updateChallengeCountdown();
   }
 }
 
@@ -809,9 +846,12 @@ function renderState(state) {
   elements.settingsLabel.textContent = [
     seres ? "Trešeta Sereš u Manje" : "Classic Trešeta",
     state.settings.ranked ? "Rangirano" : "Ležerno",
+    seres ? `${state.settings.challengeSeconds} s za odgovor` : null,
     state.settings.akuza ? "Akuža uključena" : "Bez akuže",
     state.settings.signals ? "Signali uključeni" : "Bez signala",
-  ].join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
   elements.tableMessage.textContent = state.game.message;
   elements.spectatorBadge.classList.toggle("hidden", state.me.role !== "spectator");
 
@@ -838,6 +878,9 @@ elements.seresMatchType.addEventListener("change", () => {
   applyRankedSetting();
 });
 elements.playerCountSetting.addEventListener("change", applyRankedSetting);
+elements.challengeSecondsSetting.addEventListener("input", () => {
+  elements.challengeSecondsValue.textContent = `${elements.challengeSecondsSetting.value} s`;
+});
 elements.rankedSetting.addEventListener("change", () => {
   if (elements.rankedSetting.checked && !currentAccount) {
     elements.rankedSetting.checked = false;
@@ -870,6 +913,9 @@ $("#seresAkuzaButton").addEventListener("click", () =>
 );
 $("#seresTrickButton").addEventListener("click", () =>
   emitIntent("callSeres", { context: "trick_play" })
+);
+$("#continueSeresButton").addEventListener("click", () =>
+  emitIntent("continueSeres")
 );
 elements.nextHandButton.addEventListener("click", () => emitIntent("nextHand"));
 elements.newMatchButton.addEventListener("click", () => emitIntent("newMatch"));
@@ -1006,3 +1052,4 @@ async function initialize() {
 }
 
 initialize();
+setInterval(updateChallengeCountdown, 250);

@@ -17,6 +17,7 @@ const {
   normalizeMode,
   modeConfig,
   normalizePlayerCount,
+  normalizeChallengeSeconds,
 } = require("./rules/modes");
 
 const SEAT_NAMES = ["North", "East", "South", "West", "Anchor"];
@@ -85,6 +86,10 @@ class Room {
           : "classic_treseta_ranked"
         : null,
       teams: config.teams,
+      challengeSeconds:
+        mode === GAME_MODE_SERES_U_MANJE
+          ? normalizeChallengeSeconds(settings.challengeSeconds)
+          : null,
     };
     this.hostToken = token;
     this.players = Array(playerCount).fill(null);
@@ -396,6 +401,47 @@ class Room {
     return { player, phase };
   }
 
+  challengeResponderOrder(accusedSeat) {
+    return Array.from(
+      { length: this.settings.playerCount - 1 },
+      (_unused, index) =>
+        (accusedSeat + index + 1) % this.settings.playerCount
+    );
+  }
+
+  startResponseWindow(accusedSeat) {
+    const responderOrder = this.challengeResponderOrder(accusedSeat);
+    return {
+      responderOrder,
+      currentResponderIndex: 0,
+      currentResponderSeat: responderOrder[0],
+      deadlineAt: Date.now() + this.settings.challengeSeconds * 1000,
+    };
+  }
+
+  advanceResponseWindow(window) {
+    window.currentResponderIndex += 1;
+    if (window.currentResponderIndex >= window.responderOrder.length) {
+      window.currentResponderSeat = null;
+      window.deadlineAt = null;
+      return true;
+    }
+    window.currentResponderSeat =
+      window.responderOrder[window.currentResponderIndex];
+    window.deadlineAt = Date.now() + this.settings.challengeSeconds * 1000;
+    return false;
+  }
+
+  challengeDeadline() {
+    if (this.game.status === "akuza") {
+      return this.game.akuzaPhase?.pendingDeclaration?.deadlineAt || null;
+    }
+    if (this.game.status === "playing") {
+      return this.game.seresOpportunity?.deadlineAt || null;
+    }
+    return null;
+  }
+
   declareSeresModeAkuza(token, claimId) {
     const { player, phase } = this.requireAkuzaTurn(token);
     const claim = akuzaClaim(claimId);
@@ -410,6 +456,7 @@ class Room {
       label: claim.label,
       points: claim.points,
       responses,
+      ...this.startResponseWindow(player.seat),
     };
     this.game.declarations.push({
       seat: player.seat,
@@ -457,6 +504,9 @@ class Room {
     if (pending.declarerSeat === player.seat) {
       throw new Error("Ne možete odgovoriti na vlastitu akužu.");
     }
+    if (pending.currentResponderSeat !== player.seat) {
+      throw new Error("Drugi igrač je trenutno na redu za odgovor.");
+    }
     if (pending.responses[player.seat] !== "pending") {
       throw new Error("Već ste odgovorili na ovu akužu.");
     }
@@ -466,9 +516,7 @@ class Room {
     }
     if (action !== "continue") throw new Error("Nepoznat odgovor na akužu.");
     pending.responses[player.seat] = "continue";
-    const allContinued = Object.values(pending.responses).every(
-      (response) => response === "continue"
-    );
+    const allContinued = this.advanceResponseWindow(pending);
     if (allContinued) {
       const declarer = this.players[pending.declarerSeat];
       this.game.playerScoresThirds[pending.declarerSeat] -= pending.points * 3;
@@ -485,7 +533,8 @@ class Room {
       this.advanceAkuzaTurn();
       this.game.message = `${acceptedMessage} ${this.game.message}`;
     } else {
-      this.game.message = "Waiting for players to Continue or call Sereš.";
+      const nextResponder = this.players[pending.currentResponderSeat];
+      this.game.message = `Waiting for ${nextResponder.nickname} to Continue or call Sereš.`;
     }
     this.touch();
     return { action: "continue", allContinued };
@@ -530,8 +579,6 @@ class Room {
     const player = this.requirePlayer(token);
     if (player.seat !== this.game.turnSeat) throw new Error("Niste na redu.");
 
-    // Once the next player acts, the previous off-suit play can no longer be challenged.
-    this.game.seresOpportunity = null;
     const hand = this.game.hands[player.seat];
     const card = hand.find((candidate) => candidate.id === cardId);
     if (!card) throw new Error("Ta karta nije u vašoj ruci.");
@@ -551,7 +598,19 @@ class Room {
         ledSuit,
         trickNumber: this.game.trickNumber,
         playIndex: this.game.trick.length - 1,
+        nextTurnSeat:
+          this.game.trick.length < this.settings.playerCount
+            ? (player.seat + 1) % this.settings.playerCount
+            : null,
+        ...this.startResponseWindow(player.seat),
       };
+      this.game.turnSeat = null;
+      const responder = this.players[
+        this.game.seresOpportunity.currentResponderSeat
+      ];
+      this.game.message = `${player.nickname} igra drugu boju. ${responder.nickname} odlučuje: Continue ili Sereš.`;
+      this.touch();
+      return { complete: false, challengeStarted: true, player, card };
     }
     this.game.message = `${player.nickname} igra kartu.`;
     this.touch();
@@ -561,6 +620,10 @@ class Room {
       return { complete: false, player, card };
     }
 
+    return this.finalizePlayedTrick(player, card);
+  }
+
+  finalizePlayedTrick(player = null, card = null) {
     const winner = trickWinner(this.game.trick);
     this.game.pendingTrick = {
       cards: this.game.trick.map((play) => ({ seat: play.seat, card: { ...play.card } })),
@@ -571,6 +634,50 @@ class Room {
     this.game.lastTrickWinnerSeat = winner.seat;
     this.game.message = `${this.players[winner.seat].nickname} uzima trick.`;
     return { complete: true, player, card, winnerSeat: winner.seat };
+  }
+
+  continueSeres(token) {
+    const player = this.requirePlayer(token);
+    return this.respondTrickChallenge(player, "continue");
+  }
+
+  respondTrickChallenge(player, action) {
+    if (!this.isSeresMode || this.game.status !== "playing") {
+      throw new Error("Sereš sada nije dostupan.");
+    }
+    const opportunity = this.game.seresOpportunity;
+    if (!opportunity) throw new Error("Nema valjane prilike za Sereš.");
+    if (opportunity.currentResponderSeat !== player.seat) {
+      throw new Error("Drugi igrač je trenutno na redu za odgovor.");
+    }
+    if (action === "seres") {
+      return this.resolveSeresCall(
+        player,
+        opportunity.accusedSeat,
+        "trick_play"
+      );
+    }
+    if (action !== "continue") throw new Error("Nepoznat odgovor.");
+
+    const allContinued = this.advanceResponseWindow(opportunity);
+    if (!allContinued) {
+      const nextResponder = this.players[opportunity.currentResponderSeat];
+      this.game.message = `${nextResponder.nickname} odlučuje: Continue ili Sereš.`;
+      this.touch();
+      return { action: "continue", allContinued: false, complete: false };
+    }
+
+    const nextTurnSeat = opportunity.nextTurnSeat;
+    this.game.seresOpportunity = null;
+    if (this.game.trick.length === this.settings.playerCount) {
+      const result = this.finalizePlayedTrick();
+      this.touch();
+      return { action: "continue", allContinued: true, ...result };
+    }
+    this.game.turnSeat = nextTurnSeat;
+    this.game.message = `${this.players[nextTurnSeat].nickname} je na redu.`;
+    this.touch();
+    return { action: "continue", allContinued: true, complete: false };
   }
 
   callSeres(token, context = "trick_play") {
@@ -586,7 +693,26 @@ class Room {
     if (caller.seat === opportunity.accusedSeat) {
       throw new Error("Ne možete zvati Sereš na sebe.");
     }
-    return this.resolveSeresCall(caller, opportunity.accusedSeat, "trick_play");
+    return this.respondTrickChallenge(caller, "seres");
+  }
+
+  continueExpiredChallenge(now = Date.now()) {
+    const deadline = this.challengeDeadline();
+    if (!deadline || deadline > now) return null;
+
+    if (this.game.status === "akuza") {
+      const pending = this.game.akuzaPhase?.pendingDeclaration;
+      if (!pending) return null;
+      const player = this.players[pending.currentResponderSeat];
+      const result = this.respondAkuza(player.token, "continue");
+      return { context: "akuza", timedOutSeat: player.seat, ...result };
+    }
+
+    const opportunity = this.game.seresOpportunity;
+    if (!opportunity) return null;
+    const player = this.players[opportunity.currentResponderSeat];
+    const result = this.respondTrickChallenge(player, "continue");
+    return { context: "trick_play", timedOutSeat: player.seat, ...result };
   }
 
   resolveSeresCall(caller, accusedSeat, context) {
@@ -910,7 +1036,7 @@ class Room {
       this.isSeresMode &&
       this.game.status === "akuza" &&
       pendingAkuza &&
-      pendingAkuza.declarerSeat !== player.seat &&
+      pendingAkuza.currentResponderSeat === player.seat &&
       pendingAkuza.responses[player.seat] === "pending";
     return {
       ...state,
@@ -936,7 +1062,12 @@ class Room {
           this.isSeresMode &&
           this.game.status === "playing" &&
           Boolean(this.game.seresOpportunity) &&
-          this.game.seresOpportunity.accusedSeat !== player.seat,
+          this.game.seresOpportunity.currentResponderSeat === player.seat,
+        canContinueSeres:
+          this.isSeresMode &&
+          this.game.status === "playing" &&
+          Boolean(this.game.seresOpportunity) &&
+          this.game.seresOpportunity.currentResponderSeat === player.seat,
         ratingChange: player.accountId
           ? this.game.ratingChanges[player.accountId] || null
           : null,
