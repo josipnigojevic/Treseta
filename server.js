@@ -18,10 +18,31 @@ const rooms = new RoomManager();
 const accounts = new AccountStore();
 const challengeTimers = new Map();
 const trickTimers = new Map();
+const matchRecordings = new Map();
+const matchRetryTimers = new Map();
+let idleRoomTimer = null;
+let shutdownPromise = null;
 
 app.use(express.json({ limit: "16kb" }));
 app.use(express.static(path.join(__dirname, "public")));
-app.get("/health", (_req, res) => res.json({ ok: true, rooms: rooms.rooms.size }));
+app.get("/health", async (_req, res) => {
+  try {
+    await accounts.healthCheck();
+    res.json({
+      ok: true,
+      process: true,
+      database: true,
+      rooms: rooms.rooms.size,
+    });
+  } catch (_error) {
+    res.status(503).json({
+      ok: false,
+      process: true,
+      database: false,
+      rooms: rooms.rooms.size,
+    });
+  }
+});
 
 function cookieFor(token, maxAge = 30 * 24 * 60 * 60) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
@@ -30,12 +51,12 @@ function cookieFor(token, maxAge = 30 * 24 * 60 * 60) {
   )}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
 }
 
-function accountFromCookieHeader(header) {
+async function accountFromCookieHeader(header) {
   return accounts.accountFromToken(parseCookies(header)[COOKIE_NAME]);
 }
 
-function requireHttpAccount(req, res) {
-  const account = accountFromCookieHeader(req.headers.cookie);
+async function requireHttpAccount(req, res) {
+  const account = await accountFromCookieHeader(req.headers.cookie);
   if (!account) {
     res.status(401).json({ ok: false, error: "Morate biti prijavljeni." });
     return null;
@@ -43,27 +64,50 @@ function requireHttpAccount(req, res) {
   return account;
 }
 
-app.get("/api/auth/me", (req, res) => {
-  res.json({ ok: true, account: accountFromCookieHeader(req.headers.cookie) });
-});
-
-app.post("/api/auth/register", (req, res) => {
+app.get("/api/auth/me", async (req, res) => {
   try {
-    const account = accounts.register(req.body?.username, req.body?.password);
-    res.setHeader("Set-Cookie", cookieFor(accounts.createSessionToken(account.id)));
-    res.status(201).json({ ok: true, account });
+    res.json({
+      ok: true,
+      account: await accountFromCookieHeader(req.headers.cookie),
+    });
   } catch (error) {
-    res.status(400).json({ ok: false, error: error.message });
+    console.error("Auth session lookup failed:", error);
+    res.status(503).json({ ok: false, error: "Baza podataka nije dostupna." });
   }
 });
 
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/register", async (req, res) => {
   try {
-    const account = accounts.authenticate(req.body?.username, req.body?.password);
+    const account = await accounts.register(req.body?.username, req.body?.password);
+    res.setHeader("Set-Cookie", cookieFor(accounts.createSessionToken(account.id)));
+    res.status(201).json({ ok: true, account });
+  } catch (error) {
+    const expected = [
+      "Korisničko ime mora imati",
+      "Lozinka mora imati",
+      "To korisničko ime je već zauzeto.",
+    ].some((message) => error.message.startsWith(message));
+    if (expected) {
+      res.status(400).json({ ok: false, error: error.message });
+      return;
+    }
+    console.error("Account registration failed:", error);
+    res.status(503).json({ ok: false, error: "Baza podataka nije dostupna." });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const account = await accounts.authenticate(req.body?.username, req.body?.password);
     res.setHeader("Set-Cookie", cookieFor(accounts.createSessionToken(account.id)));
     res.json({ ok: true, account });
   } catch (error) {
-    res.status(401).json({ ok: false, error: error.message });
+    if (error.message === "Pogrešno korisničko ime ili lozinka.") {
+      res.status(401).json({ ok: false, error: error.message });
+      return;
+    }
+    console.error("Account login failed:", error);
+    res.status(503).json({ ok: false, error: "Baza podataka nije dostupna." });
   }
 });
 
@@ -72,10 +116,15 @@ app.post("/api/auth/logout", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/profile", (req, res) => {
-  const account = requireHttpAccount(req, res);
-  if (!account) return;
-  res.json({ ok: true, profile: accounts.profileFor(account.id) });
+app.get("/api/profile", async (req, res) => {
+  try {
+    const account = await requireHttpAccount(req, res);
+    if (!account) return;
+    res.json({ ok: true, profile: await accounts.profileFor(account.id) });
+  } catch (error) {
+    console.error("Profile lookup failed:", error);
+    res.status(503).json({ ok: false, error: "Baza podataka nije dostupna." });
+  }
 });
 
 function callbackResult(callback, result) {
@@ -98,20 +147,27 @@ function schedulePendingTrickResolution(room) {
   const previous = trickTimers.get(room.code);
   if (previous) clearTimeout(previous.timer);
   const timer = setTimeout(() => {
-    trickTimers.delete(room.code);
-    const currentRoom = rooms.get(room.code);
-    if (!currentRoom || currentRoom !== room || !room.game.pendingTrick) return;
-    const resolution = room.resolvePendingTrick();
-    if (resolution?.handFinished) {
-      console.log(
-        `[room ${room.code}] hand ${room.game.handNumber} result ${JSON.stringify(
-          room.game.handBreakdown
-        )}`
-      );
-    }
-    if (room.game.status === "matchEnd") recordCompletedMatch(room);
-    emitRoom(room);
-    scheduleRoomChallenge(room);
+    void (async () => {
+      try {
+        trickTimers.delete(room.code);
+        const currentRoom = rooms.get(room.code);
+        if (!currentRoom || currentRoom !== room || !room.game.pendingTrick) return;
+        const resolution = room.resolvePendingTrick();
+        if (resolution?.handFinished) {
+          console.log(
+            `[room ${room.code}] hand ${room.game.handNumber} result ${JSON.stringify(
+              room.game.handBreakdown
+            )}`
+          );
+        }
+        if (room.game.status === "matchEnd") await recordCompletedMatch(room);
+        emitRoom(room);
+        scheduleRoomChallenge(room);
+      } catch (error) {
+        console.error(`[room ${room.code}] pending trick failed:`, error);
+        emitRoom(room);
+      }
+    })();
   }, TRICK_DELAY_MS);
   trickTimers.set(room.code, { key, timer });
 }
@@ -124,63 +180,118 @@ function scheduleRoomChallenge(room) {
   const deadline = room.challengeDeadline();
   if (!deadline) return;
   const timer = setTimeout(() => {
-    challengeTimers.delete(room.code);
-    const currentRoom = rooms.get(room.code);
-    if (!currentRoom || currentRoom !== room) return;
-    if (room.challengeDeadline() !== deadline) {
-      scheduleRoomChallenge(room);
-      return;
-    }
-    const result = room.continueExpiredChallenge(Date.now());
-    if (!result) {
-      scheduleRoomChallenge(room);
-      return;
-    }
-    if (result.complete && room.game.pendingTrick) {
-      schedulePendingTrickResolution(room);
-    }
-    if (room.game.status === "matchEnd") recordCompletedMatch(room);
-    emitRoom(room);
-    scheduleRoomChallenge(room);
+    void (async () => {
+      try {
+        challengeTimers.delete(room.code);
+        const currentRoom = rooms.get(room.code);
+        if (!currentRoom || currentRoom !== room) return;
+        if (room.challengeDeadline() !== deadline) {
+          scheduleRoomChallenge(room);
+          return;
+        }
+        const result = room.continueExpiredChallenge(Date.now());
+        if (!result) {
+          scheduleRoomChallenge(room);
+          return;
+        }
+        if (result.complete && room.game.pendingTrick) {
+          schedulePendingTrickResolution(room);
+        }
+        if (room.game.status === "matchEnd") await recordCompletedMatch(room);
+        emitRoom(room);
+        scheduleRoomChallenge(room);
+      } catch (error) {
+        console.error(`[room ${room.code}] challenge timer failed:`, error);
+        emitRoom(room);
+      }
+    })();
   }, Math.max(0, deadline - Date.now()) + 5);
   challengeTimers.set(room.code, { deadline, timer });
 }
 
 function withSession(socket, callback, action) {
-  try {
-    const session = socket.data.session;
-    if (!session) throw new Error("Najprije se pridružite sobi.");
-    const room = rooms.get(session.code);
-    if (!room) throw new Error("Soba više ne postoji.");
-    const value = action(room, session);
-    if (value?.complete && room.game.pendingTrick) {
-      schedulePendingTrickResolution(room);
+  void (async () => {
+    let room = null;
+    try {
+      const session = socket.data.session;
+      if (!session) throw new Error("Najprije se pridružite sobi.");
+      room = rooms.get(session.code);
+      if (!room) throw new Error("Soba više ne postoji.");
+      const value = await action(room, session);
+      if (value?.complete && room.game.pendingTrick) {
+        schedulePendingTrickResolution(room);
+      }
+      scheduleRoomChallenge(room);
+      if (room.game.status === "matchEnd") await recordCompletedMatch(room);
+      emitRoom(room);
+      callbackResult(callback, { ok: true, value });
+    } catch (error) {
+      if (room) emitRoom(room);
+      callbackResult(callback, { ok: false, error: error.message });
     }
-    scheduleRoomChallenge(room);
-    if (room.game.status === "matchEnd") recordCompletedMatch(room);
-    emitRoom(room);
-    callbackResult(callback, { ok: true, value });
-  } catch (error) {
-    callbackResult(callback, { ok: false, error: error.message });
-  }
+  })().catch((error) => {
+    console.error("Socket event callback failed:", error);
+  });
 }
 
-function recordCompletedMatch(room) {
+function scheduleMatchRecordingRetry(room) {
+  const summary = room.matchSummary();
+  if (!summary || room.game.resultRecorded) return;
+  const key = `${room.code}:${summary.matchId}`;
+  if (matchRetryTimers.has(key)) return;
+  const timer = setTimeout(() => {
+    matchRetryTimers.delete(key);
+    if (rooms.get(room.code) !== room || room.game.resultRecorded) return;
+    void recordCompletedMatch(room)
+      .then(() => emitRoom(room))
+      .catch((error) => {
+        console.error(`[room ${room.code}] match recording retry failed:`, error);
+      });
+  }, 5000);
+  timer.unref();
+  matchRetryTimers.set(key, timer);
+}
+
+async function recordCompletedMatch(room) {
   if (room.game.status !== "matchEnd" || room.game.resultRecorded) return null;
   const summary = room.matchSummary();
   if (!summary) return null;
-  const result = accounts.recordMatch(summary);
-  room.game.resultRecorded = true;
-  if (result?.ratingByAccount) room.game.ratingChanges = result.ratingByAccount;
-  console.log(
-    `[room ${room.code}] ${room.settings.ranked ? "ranked" : "casual"} match recorded`
-  );
-  return result;
+  const key = `${room.code}:${summary.matchId}`;
+  if (matchRecordings.has(key)) return matchRecordings.get(key);
+  const recording = (async () => {
+    const result = await accounts.recordMatch(summary);
+    room.game.resultRecorded = true;
+    if (result?.ratingByAccount && Object.keys(result.ratingByAccount).length) {
+      room.game.ratingChanges = result.ratingByAccount;
+    }
+    console.log(
+      `[room ${room.code}] ${room.settings.ranked ? "ranked" : "casual"} match ${
+        result?.alreadyRecorded ? "already recorded" : "recorded"
+      }`
+    );
+    return result;
+  })();
+  matchRecordings.set(key, recording);
+  try {
+    return await recording;
+  } catch (error) {
+    scheduleMatchRecordingRetry(room);
+    throw error;
+  } finally {
+    matchRecordings.delete(key);
+  }
 }
 
-io.use((socket, next) => {
-  socket.data.account = accountFromCookieHeader(socket.handshake.headers.cookie);
-  next();
+io.use(async (socket, next) => {
+  try {
+    socket.data.account = await accountFromCookieHeader(
+      socket.handshake.headers.cookie
+    );
+    next();
+  } catch (error) {
+    console.error("Socket authentication failed:", error);
+    next(new Error("Baza podataka nije dostupna."));
+  }
 });
 
 io.on("connection", (socket) => {
@@ -253,6 +364,9 @@ io.on("connection", (socket) => {
 
   socket.on("newMatch", (_payload, callback) =>
     withSession(socket, callback, (room, session) => {
+      if (room.game.status === "matchEnd" && !room.game.resultRecorded) {
+        throw new Error("Rezultat prethodne partije još se sprema.");
+      }
       room.newMatch(session.token);
       console.log(`[room ${room.code}] new match started`);
     })
@@ -331,10 +445,89 @@ io.on("connection", (socket) => {
   });
 });
 
-setInterval(() => rooms.removeIdleRooms(), 60_000).unref();
-
-server.listen(PORT, () => {
+async function start() {
+  await accounts.healthCheck();
+  await new Promise((resolve, reject) => {
+    const onError = (error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(PORT);
+  });
+  idleRoomTimer = setInterval(() => rooms.removeIdleRooms(), 60_000);
+  idleRoomTimer.unref();
   console.log(`Trešeta Online listening on http://localhost:${PORT}`);
-});
+}
 
-module.exports = { app, server, rooms, accounts };
+async function shutdown(signal = "shutdown") {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    console.log(`Trešeta Online stopping (${signal})`);
+    if (idleRoomTimer) clearInterval(idleRoomTimer);
+    challengeTimers.forEach(({ timer }) => clearTimeout(timer));
+    trickTimers.forEach(({ timer }) => clearTimeout(timer));
+    matchRetryTimers.forEach((timer) => clearTimeout(timer));
+    challengeTimers.clear();
+    trickTimers.clear();
+    matchRetryTimers.clear();
+
+    let serverClosed;
+    if (server.listening) {
+      serverClosed = new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    } else {
+      serverClosed = Promise.resolve();
+    }
+    await new Promise((resolve) => io.close(resolve));
+    await serverClosed;
+    await accounts.shutdown();
+    console.log("Trešeta Online stopped");
+  })();
+  return shutdownPromise;
+}
+
+function installSignalHandlers() {
+  ["SIGTERM", "SIGINT"].forEach((signal) => {
+    process.once(signal, () => {
+      void shutdown(signal)
+        .then(() => {
+          process.exitCode = 0;
+        })
+        .catch((error) => {
+          console.error("Graceful shutdown failed:", error);
+          process.exitCode = 1;
+        });
+    });
+  });
+}
+
+if (require.main === module) {
+  installSignalHandlers();
+  start().catch(async (error) => {
+    console.error("Trešeta Online failed to start:", error);
+    try {
+      await accounts.shutdown();
+    } catch (shutdownError) {
+      console.error("Database pool shutdown failed:", shutdownError);
+    }
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  app,
+  server,
+  io,
+  rooms,
+  accounts,
+  start,
+  shutdown,
+  recordCompletedMatch,
+};

@@ -1,24 +1,20 @@
 const assert = require("assert");
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
 const {
   AccountStore,
   STARTING_MMR,
   expectedScore,
   eloDelta,
 } = require("../src/accounts");
+const { prepareTestDatabase } = require("./db");
 
-const directory = fs.mkdtempSync(path.join(os.tmpdir(), "treseta-accounts-"));
-const filePath = path.join(directory, "accounts.json");
-const store = new AccountStore({
-  filePath,
-  sessionSecret: "test-secret-that-is-long-enough",
-});
+const SESSION_SECRET = "test-secret-that-is-long-enough";
+let store;
+let databaseUrl;
+let matchSequence = 0;
 
-function test(name, fn) {
+async function test(name, fn) {
   try {
-    fn();
+    await fn();
     console.log(`✓ ${name}`);
   } catch (error) {
     console.error(`✗ ${name}`);
@@ -26,151 +22,293 @@ function test(name, fn) {
   }
 }
 
-test("accounts register, hash passwords, authenticate, and restore sessions", () => {
-  const account = store.register("Meštar", "sigurna-lozinka");
-  assert.strictEqual(account.soloMmr, STARTING_MMR);
-  assert.strictEqual(store.data.accounts[0].passwordHash.includes("sigurna-lozinka"), false);
-  assert.strictEqual(store.authenticate("meštar", "sigurna-lozinka").id, account.id);
-  assert.throws(() => store.authenticate("Meštar", "kriva-lozinka"));
-  const token = store.createSessionToken(account.id);
-  assert.strictEqual(store.accountFromToken(token).id, account.id);
-  assert.strictEqual(store.accountFromToken(`${token}broken`), null);
-});
+function nextMatchId(prefix) {
+  matchSequence += 1;
+  return `${prefix}-${matchSequence}`;
+}
 
-test("Elo rewards an upset more than an expected win", () => {
-  const upsetGain = eloDelta(800, 1200, true, 32);
-  const expectedGain = eloDelta(1200, 800, true, 32);
-  assert.ok(upsetGain > expectedGain);
-  assert.ok(expectedGain >= 1);
-  assert.ok(expectedScore(1200, 800) > expectedScore(800, 1200));
-});
-
-test("solo MMR gives a lower-rated teammate more for the same upset", () => {
-  const lowPlayerGain = eloDelta(800, 1200, true, 32);
-  const highPlayerGain = eloDelta(1100, 1200, true, 32);
-  assert.ok(lowPlayerGain > highPlayerGain);
-});
-
-test("ranked result updates solo MMR, private duo MMR, and history", () => {
-  const users = [
-    store.findAccountByUsername("Meštar"),
-    store.register("Boris", "sigurna-lozinka"),
-    store.register("Cvita", "sigurna-lozinka"),
-    store.register("Duje", "sigurna-lozinka"),
-  ];
-  const result = store.recordMatch({
-    matchId: "ranked-match-1",
-    roomCode: "ABCDE",
-    ranked: true,
-    settings: { ranked: true, akuza: true, signals: false },
-    startedAt: Date.now() - 1000,
-    winnerTeam: 0,
-    teamScores: [41, 35],
-    handCount: 4,
-    players: users.map((account, seat) => ({
-      accountId: account.id,
-      nickname: account.username,
-      seat,
-    })),
-  });
-  assert.ok(result.ratingByAccount[users[0].id].soloDelta > 0);
-  assert.ok(result.ratingByAccount[users[1].id].soloDelta < 0);
-  assert.ok(result.ratingByAccount[users[0].id].duoDelta > 0);
-  const profile = store.profileFor(users[0].id);
-  assert.strictEqual(profile.matches.length, 1);
-  assert.strictEqual(profile.duos.length, 1);
-  assert.strictEqual(profile.duos[0].partnerUsername, "Cvita");
-  assert.strictEqual(profile.account.rankedWins, 1);
-});
-
-test("ranked Sereš u Manje updates only its separate free-for-all MMR", () => {
-  const users = ["Meštar", "Boris", "Cvita", "Duje"].map((username) =>
-    store.findAccountByUsername(username)
-  );
-  const soloBefore = users.map((account) => account.soloMmr);
-  const result = store.recordMatch({
-    matchId: "seres-ranked-match-1",
-    roomCode: "SERES",
-    mode: "seres_u_manje",
-    rankingKey: "treseta_seres_u_manje_ranked",
-    ranked: true,
+function classicSummary(players, options = {}) {
+  return {
+    matchId: options.matchId || nextMatchId("classic"),
+    roomCode: options.roomCode || "ABCDE",
+    mode: "classic",
+    rankingKey: options.ranked ? "classic_treseta_ranked" : null,
+    ranked: Boolean(options.ranked),
     settings: {
-      mode: "seres_u_manje",
-      ranked: true,
-      playerCount: 4,
+      mode: "classic",
+      ranked: Boolean(options.ranked),
+      akuza: true,
+      signals: !options.ranked,
     },
     startedAt: Date.now() - 1000,
-    loserSeat: 3,
-    playerScoresThirds: [9, 24, 60, 123],
-    standings: [
-      { seat: 0, rank: 1, scoreThirds: 9 },
-      { seat: 1, rank: 2, scoreThirds: 24 },
-      { seat: 2, rank: 3, scoreThirds: 60 },
-      { seat: 3, rank: 4, scoreThirds: 123 },
-    ],
-    handCount: 6,
-    players: users.map((account, seat) => ({
-      accountId: account.id,
-      nickname: account.username,
-      seat,
-    })),
-  });
-  assert.ok(result.ratingByAccount[users[0].id].seresDelta > 0);
-  assert.ok(result.ratingByAccount[users[3].id].seresDelta < 0);
-  users.forEach((account, seat) => {
-    assert.strictEqual(account.soloMmr, soloBefore[seat]);
-  });
-  const profile = store.profileFor(users[0].id);
-  assert.strictEqual(profile.account.seresRankedGames, 1);
-  assert.strictEqual(profile.matches[0].mode, "seres_u_manje");
-  assert.strictEqual(profile.matches[0].rank, 1);
-});
-
-test("non-ranked Sereš u Manje records the result without changing either MMR", () => {
-  const users = ["Meštar", "Boris", "Cvita"].map((username) =>
-    store.findAccountByUsername(username)
-  );
-  const before = users.map((account) => ({
-    solo: account.soloMmr,
-    seres: account.seresMmr,
-  }));
-  store.recordMatch({
-    matchId: "seres-casual-match-1",
-    roomCode: "FUN33",
-    mode: "seres_u_manje",
-    ranked: false,
-    settings: { mode: "seres_u_manje", ranked: false, playerCount: 3 },
-    startedAt: Date.now() - 1000,
-    loserSeat: 2,
-    playerScoresThirds: [0, 30, 123],
-    standings: [
-      { seat: 0, rank: 1, scoreThirds: 0 },
-      { seat: 1, rank: 2, scoreThirds: 30 },
-      { seat: 2, rank: 3, scoreThirds: 123 },
-    ],
+    winnerTeam: options.winnerTeam ?? 0,
+    teamScores: options.teamScores || [41, 35],
     handCount: 4,
-    players: users.map((account, seat) => ({
-      accountId: account.id,
-      nickname: account.username,
+    players: players.map((player, seat) => ({
+      accountId: player?.id || null,
+      nickname: player?.username || `Gost ${seat + 1}`,
       seat,
     })),
-  });
-  users.forEach((account, seat) => {
-    assert.strictEqual(account.soloMmr, before[seat].solo);
-    assert.strictEqual(account.seresMmr, before[seat].seres);
-  });
-  assert.strictEqual(store.profileFor(users[0].id).account.seresCasualGames, 1);
-});
+  };
+}
 
-test("duplicate match IDs cannot change ratings twice", () => {
-  const before = store.findAccountByUsername("Meštar").soloMmr;
-  const duplicate = store.recordMatch({
-    matchId: "ranked-match-1",
-    players: [],
-  });
-  assert.strictEqual(duplicate, null);
-  assert.strictEqual(store.findAccountByUsername("Meštar").soloMmr, before);
-});
+function seresSummary(players, options = {}) {
+  const scores = options.scores || [9, 24, 60, 123].slice(0, players.length);
+  const loserSeat = options.loserSeat ?? players.length - 1;
+  return {
+    matchId: options.matchId || nextMatchId("seres"),
+    roomCode: "SERES",
+    mode: "seres_u_manje",
+    rankingKey: options.ranked ? "treseta_seres_u_manje_ranked" : null,
+    ranked: Boolean(options.ranked),
+    settings: {
+      mode: "seres_u_manje",
+      ranked: Boolean(options.ranked),
+      playerCount: players.length,
+    },
+    startedAt: Date.now() - 1000,
+    loserSeat,
+    playerScoresThirds: scores,
+    standings: scores
+      .map((scoreThirds, seat) => ({ seat, scoreThirds }))
+      .sort((left, right) => left.scoreThirds - right.scoreThirds)
+      .map((entry, index) => ({ ...entry, rank: index + 1 })),
+    handCount: 6,
+    players: players.map((player, seat) => ({
+      accountId: player?.id || null,
+      nickname: player?.username || `Gost ${seat + 1}`,
+      seat,
+    })),
+  };
+}
 
-fs.rmSync(directory, { recursive: true, force: true });
-console.log("\nAll account and rating tests passed.");
+async function main() {
+  databaseUrl = await prepareTestDatabase();
+  store = new AccountStore({
+    databaseUrl,
+    sessionSecret: SESSION_SECRET,
+  });
+
+  let users;
+
+  await test("accounts register, normalize duplicates, hash passwords, authenticate, and restore signed sessions", async () => {
+    const account = await store.register("Meštar", "sigurna-lozinka");
+    assert.strictEqual(account.soloMmr, STARTING_MMR);
+    await assert.rejects(
+      () => store.register("  MEŠTAR  ", "druga-lozinka"),
+      /već zauzeto/
+    );
+    const stored = await store.findAccountById(account.id);
+    assert.strictEqual(stored.passwordHash.includes("sigurna-lozinka"), false);
+    assert.strictEqual(
+      (await store.authenticate("meštar", "sigurna-lozinka")).id,
+      account.id
+    );
+    await assert.rejects(
+      () => store.authenticate("Meštar", "kriva-lozinka"),
+      /Pogrešno/
+    );
+    const token = store.createSessionToken(account.id);
+    assert.strictEqual((await store.accountFromToken(token)).id, account.id);
+    assert.strictEqual(await store.accountFromToken(`${token}broken`), null);
+
+    users = [
+      account,
+      await store.register("Boris", "sigurna-lozinka"),
+      await store.register("Cvita", "sigurna-lozinka"),
+      await store.register("Duje", "sigurna-lozinka"),
+    ];
+  });
+
+  await test("Elo rewards an upset and differentiates teammate ratings", async () => {
+    const upsetGain = eloDelta(800, 1200, true, 32);
+    const expectedGain = eloDelta(1200, 800, true, 32);
+    assert.ok(upsetGain > expectedGain);
+    assert.ok(expectedGain >= 1);
+    assert.ok(expectedScore(1200, 800) > expectedScore(800, 1200));
+    assert.ok(eloDelta(800, 1200, true, 32) > eloDelta(1100, 1200, true, 32));
+  });
+
+  await test("classic casual matches preserve guests and do not change MMR", async () => {
+    const before = await store.findAccountById(users[0].id);
+    const result = await store.recordMatch(
+      classicSummary([users[0], null, users[2], null], { winnerTeam: 0 })
+    );
+    assert.strictEqual(result.match.players.filter((player) => !player.accountId).length, 2);
+    const after = await store.findAccountById(users[0].id);
+    assert.strictEqual(after.soloMmr, before.soloMmr);
+    assert.strictEqual(after.casualWins, before.casualWins + 1);
+    const profile = await store.profileFor(users[0].id);
+    assert.strictEqual(profile.matches[0].partner, "Cvita");
+    assert.deepStrictEqual(profile.matches[0].opponents, ["Gost 2", "Gost 4"]);
+  });
+
+  let rankedMatchId;
+  await test("classic ranked matches update solo and canonical duo MMR", async () => {
+    rankedMatchId = nextMatchId("ranked-classic");
+    const result = await store.recordMatch(
+      classicSummary(users, { ranked: true, matchId: rankedMatchId })
+    );
+    assert.ok(result.ratingByAccount[users[0].id].soloDelta > 0);
+    assert.ok(result.ratingByAccount[users[1].id].soloDelta < 0);
+    assert.ok(result.ratingByAccount[users[0].id].duoDelta > 0);
+    const profile = await store.profileFor(users[0].id);
+    assert.strictEqual(profile.duos.length, 1);
+    assert.strictEqual(profile.duos[0].partnerUsername, "Cvita");
+    assert.strictEqual(profile.account.rankedWins, 1);
+    assert.strictEqual(profile.matches[0].teamScores[0], 41);
+  });
+
+  await test("ranked Sereš updates only its separate free-for-all MMR", async () => {
+    const before = await Promise.all(users.map((user) => store.findAccountById(user.id)));
+    const result = await store.recordMatch(seresSummary(users, { ranked: true }));
+    assert.ok(result.ratingByAccount[users[0].id].seresDelta > 0);
+    assert.ok(result.ratingByAccount[users[3].id].seresDelta < 0);
+    const after = await Promise.all(users.map((user) => store.findAccountById(user.id)));
+    after.forEach((account, seat) => {
+      assert.strictEqual(account.soloMmr, before[seat].soloMmr);
+    });
+    const profile = await store.profileFor(users[0].id);
+    assert.strictEqual(profile.account.seresRankedGames, 1);
+    assert.strictEqual(profile.matches[0].mode, "seres_u_manje");
+    assert.strictEqual(profile.matches[0].rank, 1);
+    assert.deepStrictEqual(profile.matches[0].opponents, ["Boris", "Cvita", "Duje"]);
+  });
+
+  await test("casual Sereš records counters without changing either MMR", async () => {
+    const participants = users.slice(0, 3);
+    const before = await Promise.all(
+      participants.map((user) => store.findAccountById(user.id))
+    );
+    await store.recordMatch(
+      seresSummary(participants, {
+        ranked: false,
+        scores: [0, 30, 123],
+        loserSeat: 2,
+      })
+    );
+    const after = await Promise.all(
+      participants.map((user) => store.findAccountById(user.id))
+    );
+    after.forEach((account, seat) => {
+      assert.strictEqual(account.soloMmr, before[seat].soloMmr);
+      assert.strictEqual(account.seresMmr, before[seat].seresMmr);
+    });
+    assert.strictEqual(
+      (await store.profileFor(users[0].id)).account.seresCasualGames,
+      1
+    );
+  });
+
+  await test("duplicate match IDs are successful and never change ratings twice", async () => {
+    const before = await store.findAccountById(users[0].id);
+    const duplicate = await store.recordMatch(
+      classicSummary(users, { ranked: true, matchId: rankedMatchId })
+    );
+    assert.strictEqual(duplicate.alreadyRecorded, true);
+    const after = await store.findAccountById(users[0].id);
+    assert.strictEqual(after.soloMmr, before.soloMmr);
+    assert.strictEqual(after.rankedWins, before.rankedWins);
+  });
+
+  await test("simultaneous duplicate recording commits exactly once", async () => {
+    const matchId = nextMatchId("concurrent");
+    const summary = classicSummary(users, { ranked: true, matchId });
+    const before = await store.findAccountById(users[0].id);
+    const results = await Promise.all([
+      store.recordMatch(summary),
+      store.recordMatch(summary),
+    ]);
+    assert.strictEqual(results.filter((result) => result.alreadyRecorded).length, 1);
+    const after = await store.findAccountById(users[0].id);
+    assert.strictEqual(after.rankedWins, before.rankedWins + 1);
+    const count = await store.pool.query("SELECT COUNT(*)::int AS count FROM matches WHERE id = $1", [
+      matchId,
+    ]);
+    assert.strictEqual(count.rows[0].count, 1);
+  });
+
+  await test("transaction failure rolls back accounts, duos, matches, and snapshots", async () => {
+    const matchId = nextMatchId("rollback");
+    const before = await store.findAccountById(users[0].id);
+    const duoBefore = await store.pool.query(
+      `SELECT mmr, wins, losses, games
+       FROM duos
+       WHERE account_low_id = LEAST($1::uuid, $2::uuid)
+         AND account_high_id = GREATEST($1::uuid, $2::uuid)`,
+      [users[0].id, users[2].id]
+    );
+    const failingStore = new AccountStore({
+      databaseUrl,
+      sessionSecret: SESSION_SECRET,
+      transactionHook(stage) {
+        if (stage === "beforeCommit") {
+          throw new Error("forced rollback");
+        }
+      },
+    });
+    await assert.rejects(
+      () =>
+        failingStore.recordMatch(
+          classicSummary(users, { ranked: true, matchId, winnerTeam: 1 })
+        ),
+      /forced rollback/
+    );
+    await failingStore.shutdown();
+    const after = await store.findAccountById(users[0].id);
+    assert.strictEqual(after.soloMmr, before.soloMmr);
+    assert.strictEqual(after.rankedLosses, before.rankedLosses);
+    const duoAfter = await store.pool.query(
+      `SELECT mmr, wins, losses, games
+       FROM duos
+       WHERE account_low_id = LEAST($1::uuid, $2::uuid)
+         AND account_high_id = GREATEST($1::uuid, $2::uuid)`,
+      [users[0].id, users[2].id]
+    );
+    assert.deepStrictEqual(duoAfter.rows, duoBefore.rows);
+    const rows = await store.pool.query(
+      `SELECT
+        (SELECT COUNT(*)::int FROM matches WHERE id = $1) AS matches,
+        (SELECT COUNT(*)::int FROM match_players WHERE match_id = $1) AS players`,
+      [matchId]
+    );
+    assert.deepStrictEqual(rows.rows[0], { matches: 0, players: 0 });
+  });
+
+  await test("profile response shape and database data survive an AccountStore restart", async () => {
+    const accountId = users[0].id;
+    const profileBefore = await store.profileFor(accountId);
+    assert.ok(profileBefore.account.rankedGames >= 2);
+    assert.ok(profileBefore.matches.length >= 4);
+    assert.ok(
+      profileBefore.matches.every(
+        (match) =>
+          typeof match.id === "string" &&
+          typeof match.completedAt === "number" &&
+          typeof match.ranked === "boolean"
+      )
+    );
+    await store.shutdown();
+    store = new AccountStore({
+      databaseUrl,
+      sessionSecret: SESSION_SECRET,
+    });
+    const restored = await store.findAccountById(accountId);
+    assert.strictEqual(restored.username, "Meštar");
+    assert.deepStrictEqual(
+      (await store.profileFor(accountId)).account,
+      profileBefore.account
+    );
+  });
+
+  console.log("\nAll PostgreSQL account and rating tests passed.");
+}
+
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    if (store) await store.shutdown();
+  });

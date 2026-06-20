@@ -1,171 +1,297 @@
 # Trešeta Online
 
-An authoritative online Croatian/Adriatic Trešeta game built with Node.js,
-Express, Socket.IO, and a dependency-free browser client. It includes classic
-four-player team Trešeta plus the free-for-all **Trešeta Sereš u Manje** mode,
-persistent accounts, match history, and separate ranked ratings.
+Authoritative multiplayer Trešeta built with Node.js, Express, Socket.IO, and
+PostgreSQL. It includes classic four-player team Trešeta and the free-for-all
+**Trešeta Sereš u Manje** mode.
 
-## Run locally
+Accounts, ratings, duo records, and match history survive application and
+container restarts. Active rooms and games remain in one Node.js process and
+disappear whenever that process restarts.
 
-Requirements: Node.js 16 or newer.
+## Requirements
+
+- Production: Ubuntu 24.04 VPS, Docker Engine, and the modern `docker compose`
+  plugin.
+- Local development: Node.js 20 or newer and PostgreSQL 15 or newer.
+
+Install dependencies reproducibly:
 
 ```bash
-npm install
+npm ci
+```
+
+## Local PostgreSQL development
+
+Create separate development and test databases with your local PostgreSQL
+tools. The test database name must contain `test`; this is an intentional
+safety check.
+
+```bash
+createdb treseta_dev
+createdb treseta_test
+
+export DATABASE_URL='postgresql://localhost/treseta_dev'
+export TEST_DATABASE_URL='postgresql://localhost/treseta_test'
+export AUTH_SECRET="$(openssl rand -hex 48)"
+
+npm run db:migrate
+npm run db:status
 npm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Choose a game mode,
-ranked/non-ranked play, and (for Sereš u Manje) 3–5 players. Create a room,
-copy its five-character code or invite URL, and open that link in separate
-browser profiles/devices. The room creator can start when every seat is
-connected.
+Open [http://localhost:3000](http://localhost:3000).
 
-Accounts and results are stored in `data/treseta-data.json`. For deployment,
-set a stable secret and optionally choose another data path:
+Migrations are explicit. The application verifies database connectivity before
+listening, but it never runs schema migrations automatically.
 
-```bash
-AUTH_SECRET="replace-with-a-long-random-secret" \
-DATA_FILE="/var/lib/treseta/data.json" \
-npm start
-```
+## Tests
 
-For development:
+`TEST_DATABASE_URL` is mandatory, must differ from `DATABASE_URL`, and its
+database name must contain `test`. Tests truncate only that dedicated database.
 
 ```bash
-npm run dev
-```
-
-Run the rule-engine tests:
-
-```bash
+export TEST_DATABASE_URL='postgresql://localhost/treseta_test'
 npm test
+npm run test:integration
+npm run test:all
 ```
 
-Run real Socket.IO integration tests for classic casual/ranked play and a
-three-player Sereš challenge/redeal:
+`npm test` runs gameplay/rules tests and PostgreSQL account tests. The
+integration suite starts the real server, checks `/health`, exercises
+Socket.IO, records ranked matches, and restarts the application to verify
+persistence.
+
+## Database model and migrations
+
+Versioned SQL files live in `db/migrations`. `schema_migrations` records each
+filename and SHA-256 checksum; rerunning the runner is safe, while editing an
+already-applied migration fails loudly.
 
 ```bash
-npm run test:integration
+npm run db:migrate
+npm run db:status
 ```
 
-## Game modes
+The normalized schema contains:
 
-### Classic Trešeta
+- `accounts` for UUID identities, username keys, scrypt credentials, ratings,
+  counters, and timestamps.
+- `duos` for one canonical account pair and its private classic duo rating.
+- `matches` for mode, timing, settings, classic scores, and Sereš standings.
+- `match_players` for guests or accounts and immutable rating snapshots.
 
-- Seats are North, East, South, and West.
-- North + South play against East + West.
-- The server deals ten cards to each player from a 40-card Italian deck.
-- Trick strength is `3, 2, Ace, King, Horse, Jack, 7, 6, 5, 4`.
-- There are no trumps and players must follow the led suit when possible.
-- The match continues over multiple hands until a team reaches 41 points.
-- Card values are tracked in thirds. At hand end, each team's whole card
-  points are counted, its leftover fraction is shown and dropped, then the
-  full last-trick point and any akuža points are added.
-- Akuža and the Busso / Strišo / Volo signaling buttons can be disabled when
-  creating a room.
-- Casual rooms allow guests. Ranked rooms require four different authenticated
-  accounts, always enable akuža, and disable optional signals.
+`AUTH_SECRET` is never stored in PostgreSQL. Keep it stable because changing it
+invalidates every signed login cookie.
 
-### Trešeta Sereš u Manje
+## Production architecture
 
-- Free-for-all play for 3, 4, or 5 players. There are no teams.
-- The objective is to collect as few points as possible. The first player to
-  reach or pass 41 points loses the match.
-- Three players receive 13 cards each and one shuffled card remains hidden.
-  Four players receive 10 each; five players receive 8 each.
-- A match contains multiple hands, and a hand contains multiple tricks:
-  13 tricks with 3 players, 10 with 4, and 8 with 5.
-- Any card may be played; following the led suit is not enforced. The strongest
-  card of the led suit still wins.
-- Card values are tracked exactly in thirds. The final-trick bonus is awarded
-  to the final trick winner.
-- Every hand starts with a turn-based akuža phase. A player may declare any
-  supported akuža, including a bluff. Other players must Continue or call
-  Sereš before the next akuža turn begins.
-- An accepted akuža subtracts its value from the declarer's score. Scores may
-  go below zero.
-- After an off-suit card, play pauses and every other player receives a
-  sequential Continue/Sereš response turn. The response time is configurable
-  from 5 to 60 seconds when the room is created (10 seconds by default).
-- An unanswered response turn automatically becomes Continue. Only after every
-  eligible player Continues may the next card be played.
-- Akuža challenges use the same sequential timed response flow before the next
-  akuža declaration is allowed.
-- If any eligible responder calls Sereš, the server checks the accused
-  player's hidden hand.
-- A correct Sereš gives the liar 11 points; an incorrect Sereš gives the caller
-  11 points. The same rule applies to challenged akuža declarations.
-- Every Sereš ends the current hand immediately. If nobody reached 41, the
-  server automatically abandons the remaining cards and deals a new hand.
-- A normal completed hand also automatically leads to another deal unless
-  someone reached 41.
-- Ranked Sereš u Manje uses `treseta_seres_u_manje_ranked` and a separate
-  free-for-all MMR. Classic solo/duo MMR is not changed.
+`docker-compose.yml` runs three services:
 
-## Accounts and rankings
+- Caddy is the only public service and binds ports 80 and 443. It obtains and
+  renews HTTPS certificates and proxies HTTP and Socket.IO WebSockets.
+- The Node application is exposed only to the private Compose networks on port
+  3000.
+- PostgreSQL has no host port mapping and is reachable only on the internal
+  backend network. Port 5432 must remain private.
 
-- Passwords are hashed with Node's `scrypt`; plaintext passwords are never
-  stored.
-- Login sessions use signed, HTTP-only, SameSite cookies and last 30 days.
-- Every account begins at **1000 solo MMR**.
-- Every account also begins at **1000 Sereš u Manje MMR**.
-- Solo MMR uses Elo expectations against the opposing team's average rating.
-  A lower-rated player earns more for an upset; an expected favorite earns
-  less. The K-factor is 32 and every decisive match changes rating by at least
-  one point.
-- Every unique pair of partners begins its own private **1000 duo MMR**. That
-  pair rating changes against the opposing pair with a K-factor of 36.
-- Ranked and casual results appear in each authenticated player's private
-  profile. Only ranked matches change MMR.
-- Sereš u Manje rating is calculated from the player's final standing against
-  every other player in that match. Non-ranked Sereš matches never change MMR.
-- This first persistent version uses a local JSON store. For multiple server
-  processes or larger production scale, replace `AccountStore` with a
-  transactional database such as PostgreSQL.
+PostgreSQL data and Caddy certificate/configuration data use named volumes. The
+application container filesystem holds no persistent application data.
 
-## Architecture
+## Environment setup
 
-- `server.js` owns Socket.IO events and sends a separately serialized state to
-  every connected client.
-- `src/rooms.js` owns room lifecycle, seats, reconnection reservations, hands,
-  turns, declarations, tricks, and match progression.
-- `src/rules/cards.js` defines and deals the 40-card deck.
-- `src/rules/treseta.js` contains follow-suit, trick, scoring, and akuža rules.
-- `src/rules/modes.js` contains mode identifiers and configurable differences
-  such as player count, team/free-for-all scoring, follow-suit behavior, and
-  automatic hand progression.
-- `src/accounts.js` owns password hashing, signed sessions, persistence, match
-  history, and solo/duo Elo calculations.
-- `public/` contains the responsive UI and a locally hosted, freely licensed
-  Triestine-pattern card sprite.
-- `tests/rules.test.js` checks deck integrity, dealing, legal play, trick
-  winners, scoring, declarations, and hidden-hand serialization.
-- `tests/accounts.test.js` checks authentication, session signing, Elo behavior,
-  duo ratings, history, and duplicate-result protection.
-- `tests/integration.test.js` plays both a casual hand and a complete
-  authenticated ranked match to 41 with independent Socket.IO clients.
+Copy the template and edit it:
 
-## Server authority and reconnects
+```bash
+cp .env.example .env
+openssl rand -hex 32
+openssl rand -hex 48
+```
 
-Clients send only intents. The server validates card ownership, turn order,
-follow-suit rules, declarations, signals, trick winners, Sereš windows, real
-akuža claims when challenged, and scores. Public state never contains all
-hands; each player receives only their own hand. The current three-player
-discard is never serialized while its hand is active.
+Use the first value for `POSTGRES_PASSWORD` and in `DATABASE_URL`; use the
+second for `AUTH_SECRET`. Hex output is URL-safe. If you choose a database
+password containing URL-special characters such as `@`, `:`, `/`, `?`, `#`,
+or `%`, percent-encode it in `DATABASE_URL`.
 
-The browser stores a random room-specific reconnection token. A disconnected
-seat remains reserved for 90 seconds. Returning with the token restores that
-seat and hand. After the reservation expires, a new player may take over the
-seat so a live game is not permanently stranded. Rooms with no connected
-players are removed after 30 minutes.
+Keep `PORT=3000` with the supplied Compose and Caddy configuration.
 
-Active rooms are held in memory and are lost when the server restarts.
+Point the domain's DNS `A` record (and `AAAA` if used) at the VPS before
+starting Caddy. Certificate issuance requires public access to ports 80 and
+443.
 
-## Card artwork
+## First VPS deployment
 
-The game uses the traditional Triestine pattern commonly played on the
-Croatian and Slovenian coast. The sprite is based on
-[Tršćanske karte.png](https://commons.wikimedia.org/wiki/File:Tr%C5%A1%C4%87anske_karte.png)
-by Wikimedia Commons user CCCKKK, licensed under
-[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Full asset
-attribution is included in `public/assets/cards/LICENSE.md`.
+Install Docker Engine and its Compose plugin, clone the repository, then:
+
+```bash
+cp .env.example .env
+# Fill DOMAIN, POSTGRES_PASSWORD, DATABASE_URL, and AUTH_SECRET.
+set -a
+. ./.env
+set +a
+
+docker compose up -d postgres
+docker compose ps
+
+docker compose build app
+docker compose run --rm app npm run db:migrate
+docker compose up -d app caddy
+
+docker compose ps
+docker compose logs --tail=100 app caddy postgres
+curl --fail "https://${DOMAIN}/health"
+```
+
+The expected sequence is:
+
+1. Copy `.env.example` to `.env`.
+2. Set the domain and generated secrets.
+3. Start PostgreSQL and wait for it to become healthy.
+4. Run migrations in a one-off application container.
+5. Start the application and Caddy.
+6. Verify `/health`, HTTPS, and room creation through Socket.IO.
+7. Restart containers and verify an account still exists.
+8. Create, inspect, and test a backup.
+
+Persistence check:
+
+```bash
+docker compose restart app
+curl --fail "https://${DOMAIN}/health"
+```
+
+Sign in again and confirm the profile and match history remain. Active rooms
+will be gone after this restart by design.
+
+## Updating
+
+Create a backup first, then fetch the desired release:
+
+```bash
+git pull --ff-only
+docker compose build app
+docker compose run --rm app npm run db:migrate
+docker compose up -d app caddy
+docker compose ps
+curl --fail "https://${DOMAIN}/health"
+```
+
+Migrations run before the new application starts. Do not add migration
+execution to every app process.
+
+## Rollback
+
+Keep the previous Git revision or release tag and the backup made immediately
+before updating.
+
+```bash
+git checkout <previous-release-tag-or-commit>
+docker compose build app
+docker compose up -d app caddy
+```
+
+SQL migrations are forward-only. If the previous application is incompatible
+with the migrated schema, stop the app and restore the pre-update backup using
+the procedure below. Restoring replaces current database contents, so preserve
+another backup before doing it.
+
+## Logs and health
+
+```bash
+docker compose ps
+docker compose logs -f --tail=200 app
+docker compose logs -f --tail=200 caddy
+docker compose logs -f --tail=200 postgres
+docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q app)"
+docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q postgres)"
+```
+
+`/health` returns process status, PostgreSQL status, and the current in-memory
+room count. It returns HTTP 503 when PostgreSQL cannot answer.
+
+## Backup and restore
+
+Backups are ordinary host files under `./backups`, outside PostgreSQL's live
+named volume:
+
+```bash
+mkdir -p backups
+BACKUP="backups/treseta-$(date -u +%Y%m%dT%H%M%SZ).dump"
+docker compose exec -T postgres sh -c \
+  'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > "$BACKUP"
+test -s "$BACKUP"
+echo "$BACKUP"
+```
+
+List and verify backups:
+
+```bash
+find backups -maxdepth 1 -type f -name '*.dump' -print | sort
+docker compose exec -T postgres pg_restore --list < "$BACKUP" >/dev/null
+```
+
+Test a backup by restoring it to a disposable database in the PostgreSQL
+container:
+
+```bash
+docker compose exec postgres sh -c \
+  'dropdb --if-exists -U "$POSTGRES_USER" treseta_restore_test &&
+   createdb -U "$POSTGRES_USER" treseta_restore_test'
+docker compose exec -T postgres sh -c \
+  'pg_restore -U "$POSTGRES_USER" -d treseta_restore_test --no-owner --no-privileges' \
+  < "$BACKUP"
+docker compose exec postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d treseta_restore_test -c "\dt"'
+docker compose exec postgres sh -c \
+  'dropdb -U "$POSTGRES_USER" treseta_restore_test'
+```
+
+Restore production only during a maintenance window:
+
+```bash
+docker compose stop app
+docker compose exec -T postgres sh -c \
+  'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists \
+   --no-owner --no-privileges' < "$BACKUP"
+docker compose up -d app
+curl --fail "https://${DOMAIN}/health"
+```
+
+Pruning is deliberately manual and retention-controlled. Preview first:
+
+```bash
+RETENTION_DAYS=30
+find backups -maxdepth 1 -type f -name '*.dump' \
+  -mtime +"$RETENTION_DAYS" -print
+```
+
+After reviewing the preview, rerun the same command with `-delete` appended.
+There is no automatic destructive pruning job.
+
+## Security notes
+
+- Allow inbound firewall ports 22, 80, and 443 only. Restrict SSH further when
+  practical.
+- Never publish Node port 3000 or PostgreSQL port 5432 from Compose.
+- Keep `.env`, dumps, and backups out of Git and protect their filesystem
+  permissions.
+- Use a long, stable `AUTH_SECRET` and a strong PostgreSQL password.
+- Passwords are hashed with Node's `scrypt`; sessions are signed 30-day
+  HTTP-only, SameSite cookies and are `Secure` in production.
+- Apply Ubuntu and Docker security updates and review container logs and disk
+  usage regularly.
+
+## Gameplay and scaling limits
+
+Classic Trešeta uses four alternating team seats and plays to 41. Ranked games
+require four authenticated accounts and update solo and duo Elo. Sereš u Manje
+supports 3–5 players and has a separate free-for-all rating. Casual games may
+contain guests and never alter MMR.
+
+Clients send intents; the server validates hands, turns, declarations,
+challenges, tricks, and scoring. Rooms, cards, timers, reconnection
+reservations, and active games remain in memory.
+
+Run exactly one Node application instance initially. Users, ratings, duos, and
+match history survive restarts, but active rooms do not. Multiple application
+instances would require shared room state, Redis, and the Socket.IO Redis
+adapter; that architecture is outside this deployment.

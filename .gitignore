@@ -1,4 +1,14 @@
 node_modules/
 data/*.json
 data/*.tmp
+.env
+.env.*
+!.env.example
+backups/
+*.dump
+*.sql.gz
+postgres-data/
+pgdata/
+coverage/
+npm-debug.log*
 .DS_Store

@@ -1,17 +1,15 @@
 const assert = require("assert");
-const fs = require("fs");
 const http = require("http");
-const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const { io } = require("socket.io-client");
+const { prepareTestDatabase } = require("./db");
 
 const PORT = 3197;
 const URL = `http://127.0.0.1:${PORT}`;
 const root = path.join(__dirname, "..");
-const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "treseta-integration-"));
-const dataFile = path.join(dataDirectory, "data.json");
 let serverProcess;
+let databaseUrl;
 const clients = [];
 const states = [];
 
@@ -43,8 +41,9 @@ function startServer() {
       env: {
         ...process.env,
         PORT: String(PORT),
-        DATA_FILE: dataFile,
+        DATABASE_URL: databaseUrl,
         AUTH_SECRET: "integration-test-secret",
+        NODE_ENV: "test",
         TRICK_DELAY_MS: "2",
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -70,6 +69,23 @@ function startServer() {
         reject(new Error(`Server exited with ${code}:\n${output}`));
       }
     });
+  });
+}
+
+function stopServer() {
+  return new Promise((resolve) => {
+    if (!serverProcess || serverProcess.exitCode !== null) {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(() => {
+      serverProcess.kill("SIGKILL");
+    }, 5000);
+    serverProcess.once("exit", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+    serverProcess.kill("SIGTERM");
   });
 }
 
@@ -173,7 +189,17 @@ async function autoplayHand(clientIndices) {
 }
 
 async function run() {
+  databaseUrl = await prepareTestDatabase();
   await startServer();
+  const health = await httpRequest("GET", "/health");
+  assert.strictEqual(health.status, 200);
+  assert.deepStrictEqual(health.body, {
+    ok: true,
+    process: true,
+    database: true,
+    rooms: 0,
+  });
+  console.log("✓ /health verifies PostgreSQL and reports the in-memory room count");
   await Promise.all([0, 1, 2, 3].map(connectClient));
 
   const created = await intent(clients[0], "createRoom", {
@@ -412,6 +438,15 @@ async function run() {
 
   console.log("✓ authenticated ranked room enforces fixed competitive settings");
   console.log("✓ a full match to 41 updates solo MMR, duo MMR, and private history");
+
+  clients.forEach((client) => client?.disconnect());
+  await stopServer();
+  await startServer();
+  const persistedProfile = await httpRequest("GET", "/api/profile", null, cookies[0]);
+  assert.strictEqual(persistedProfile.status, 200);
+  assert.strictEqual(persistedProfile.body.profile.account.rankedGames, 1);
+  assert.strictEqual(persistedProfile.body.profile.matches[0].ranked, true);
+  console.log("✓ account and match data survive an application restart");
   console.log("\nSocket.IO integration test passed.");
 }
 
@@ -422,6 +457,5 @@ run()
   })
   .finally(() => {
     clients.forEach((client) => client?.disconnect());
-    if (serverProcess && !serverProcess.killed) serverProcess.kill();
-    fs.rmSync(dataDirectory, { recursive: true, force: true });
+    return stopServer();
   });
