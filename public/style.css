@@ -33,7 +33,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -205,7 +206,8 @@ label > span,
   text-transform: uppercase;
 }
 
-input {
+input,
+select {
   width: 100%;
   padding: 14px 15px;
   color: var(--ink);
@@ -216,13 +218,48 @@ input {
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: #2d705b;
   box-shadow: 0 0 0 3px rgba(45, 112, 91, 0.12);
 }
 
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #52655e 50%),
+    linear-gradient(135deg, #52655e 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 50%,
+    calc(100% - 12px) 50%;
+  background-repeat: no-repeat;
+  background-size: 6px 6px, 6px 6px;
+}
+
 .room-actions {
   margin-top: 35px;
+}
+
+.mode-field {
+  display: block;
+}
+
+.mode-description {
+  margin: 10px 0 18px;
+  padding: 11px 13px;
+  color: #52655e;
+  border-left: 3px solid #24725a;
+  border-radius: 0 8px 8px 0;
+  background: rgba(36, 114, 90, 0.07);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.seres-setup {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 17px;
 }
 
 .setting-row {
@@ -338,6 +375,12 @@ input:focus {
 .button.gold {
   color: #2b2414;
   background: linear-gradient(135deg, var(--gold-light), var(--gold));
+}
+
+.button.danger {
+  color: white;
+  background: linear-gradient(135deg, #c94f40, #8d2a22);
+  box-shadow: 0 8px 18px rgba(141, 42, 34, 0.22);
 }
 
 .create-block .button,
@@ -509,6 +552,54 @@ input:focus {
   background: rgba(6, 28, 22, 0.82);
 }
 
+.player-score-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid rgba(237, 220, 184, 0.13);
+  background: rgba(213, 168, 75, 0.14);
+}
+
+.player-score {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 12px;
+  min-height: 58px;
+  padding: 8px 16px;
+  background: rgba(6, 28, 22, 0.94);
+}
+
+.player-score.turn {
+  background: rgba(35, 98, 77, 0.96);
+  box-shadow: inset 0 -3px var(--gold);
+}
+
+.player-score.loser {
+  background: rgba(113, 35, 28, 0.92);
+}
+
+.player-score span {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-score strong {
+  grid-row: span 2;
+  color: var(--gold-light);
+  font: 500 27px Georgia, serif;
+}
+
+.player-score small {
+  color: #8ea69c;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .team-score {
   display: flex;
   align-items: center;
@@ -629,6 +720,55 @@ input:focus {
 .seat-west {
   left: 5%;
   top: 50%;
+}
+
+.seat-anchor {
+  left: 22%;
+  top: 16%;
+}
+
+.inactive-seat {
+  display: none;
+}
+
+.player-count-5 .seat-north {
+  left: 50%;
+  top: 3%;
+}
+
+.player-count-5 .seat-east {
+  left: 94%;
+  top: 38%;
+}
+
+.player-count-5 .seat-south {
+  left: 77%;
+  top: 91%;
+}
+
+.player-count-5 .seat-west {
+  left: 23%;
+  top: 91%;
+}
+
+.player-count-5 .seat-anchor {
+  left: 6%;
+  top: 38%;
+}
+
+.player-count-3 .seat-north {
+  left: 50%;
+  top: 3%;
+}
+
+.player-count-3 .seat-east {
+  left: 91%;
+  top: 77%;
+}
+
+.player-count-3 .seat-south {
+  left: 9%;
+  top: 77%;
 }
 
 .seat-card {
@@ -752,6 +892,12 @@ input:focus {
   transform: translateY(-50%) rotate(-88deg);
 }
 
+.trick-anchor {
+  left: 30px;
+  top: 10px;
+  transform: rotate(-38deg);
+}
+
 .table-emblem {
   position: absolute;
   left: 50%;
@@ -861,6 +1007,22 @@ button.playing-card {
   text-align: center;
 }
 
+.led-suit-badge {
+  position: absolute;
+  left: 50%;
+  top: 13%;
+  z-index: 5;
+  padding: 5px 9px;
+  color: #2d250f;
+  border-radius: 12px;
+  background: var(--gold-light);
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .signal-feed {
   position: absolute;
   right: 11%;
@@ -949,7 +1111,8 @@ button.playing-card {
 
 .declaration-bar,
 .signal-controls,
-.lobby-controls {
+.lobby-controls,
+.seres-trick-bar {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -959,6 +1122,28 @@ button.playing-card {
   border-radius: 12px;
   background: rgba(7, 27, 21, 0.94);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.seres-action-bar {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.seres-action-bar select {
+  width: auto;
+  min-width: 170px;
+  padding: 10px 35px 10px 12px;
+}
+
+.seres-trick-bar {
+  color: #ffe4df;
+  border-color: rgba(220, 88, 69, 0.55);
+  background: rgba(76, 18, 14, 0.96);
+  animation: pop 0.2s ease-out;
+}
+
+.seres-trick-bar span {
+  font-size: 11px;
 }
 
 .declaration-bar span,
@@ -1142,7 +1327,7 @@ button.playing-card {
 
 .profile-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   margin-top: 28px;
 }
@@ -1382,6 +1567,10 @@ button.playing-card {
   margin-top: 28px;
 }
 
+.score-breakdown.free-for-all {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
 .team-breakdown {
   padding: 19px;
   border: 1px solid #d9d9cf;
@@ -1392,6 +1581,12 @@ button.playing-card {
 .team-breakdown.winner {
   border-color: #cba64f;
   box-shadow: inset 0 0 0 2px rgba(213, 168, 75, 0.16);
+}
+
+.team-breakdown.loser {
+  border-color: #b44d42;
+  background: rgba(180, 77, 66, 0.09);
+  box-shadow: inset 0 0 0 2px rgba(180, 77, 66, 0.12);
 }
 
 .team-breakdown h3 {

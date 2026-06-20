@@ -1,9 +1,9 @@
 # Trešeta Online
 
-A complete four-player online version of Croatian/Adriatic Trešeta, built with
-Node.js, Express, Socket.IO, and a dependency-free browser client. It includes
-persistent accounts, private match history, solo MMR, and partner-specific duo
-MMR.
+An authoritative online Croatian/Adriatic Trešeta game built with Node.js,
+Express, Socket.IO, and a dependency-free browser client. It includes classic
+four-player team Trešeta plus the free-for-all **Trešeta Sereš u Manje** mode,
+persistent accounts, match history, and separate ranked ratings.
 
 ## Run locally
 
@@ -14,9 +14,11 @@ npm install
 npm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Create a room, copy its
-five-character code or invite URL, and open that link in four separate browser
-profiles/devices. The room creator can start once all four seats are connected.
+Open [http://localhost:3000](http://localhost:3000). Choose a game mode,
+ranked/non-ranked play, and (for Sereš u Manje) 3–5 players. Create a room,
+copy its five-character code or invite URL, and open that link in separate
+browser profiles/devices. The room creator can start when every seat is
+connected.
 
 Accounts and results are stored in `data/treseta-data.json`. For deployment,
 set a stable secret and optionally choose another data path:
@@ -39,13 +41,16 @@ Run the rule-engine tests:
 npm test
 ```
 
-Run a real four-client Socket.IO integration test that autoplays one hand:
+Run real Socket.IO integration tests for classic casual/ranked play and a
+three-player Sereš challenge/redeal:
 
 ```bash
 npm run test:integration
 ```
 
-## Gameplay
+## Game modes
+
+### Classic Trešeta
 
 - Seats are North, East, South, and West.
 - North + South play against East + West.
@@ -61,12 +66,42 @@ npm run test:integration
 - Casual rooms allow guests. Ranked rooms require four different authenticated
   accounts, always enable akuža, and disable optional signals.
 
+### Trešeta Sereš u Manje
+
+- Free-for-all play for 3, 4, or 5 players. There are no teams.
+- The objective is to collect as few points as possible. The first player to
+  reach or pass 41 points loses the match.
+- Three players receive 13 cards each and one shuffled card remains hidden.
+  Four players receive 10 each; five players receive 8 each.
+- A match contains multiple hands, and a hand contains multiple tricks:
+  13 tricks with 3 players, 10 with 4, and 8 with 5.
+- Any card may be played; following the led suit is not enforced. The strongest
+  card of the led suit still wins.
+- Card values are tracked exactly in thirds. The final-trick bonus is awarded
+  to the final trick winner.
+- Every hand starts with a turn-based akuža phase. A player may declare any
+  supported akuža, including a bluff. Other players must Continue or call
+  Sereš before the next akuža turn begins.
+- An accepted akuža subtracts its value from the declarer's score. Scores may
+  go below zero.
+- After an off-suit card, other players may immediately call Sereš before the
+  next card is played. The server checks the accused player's hidden hand.
+- A correct Sereš gives the liar 11 points; an incorrect Sereš gives the caller
+  11 points. The same rule applies to challenged akuža declarations.
+- Every Sereš ends the current hand immediately. If nobody reached 41, the
+  server automatically abandons the remaining cards and deals a new hand.
+- A normal completed hand also automatically leads to another deal unless
+  someone reached 41.
+- Ranked Sereš u Manje uses `treseta_seres_u_manje_ranked` and a separate
+  free-for-all MMR. Classic solo/duo MMR is not changed.
+
 ## Accounts and rankings
 
 - Passwords are hashed with Node's `scrypt`; plaintext passwords are never
   stored.
 - Login sessions use signed, HTTP-only, SameSite cookies and last 30 days.
 - Every account begins at **1000 solo MMR**.
+- Every account also begins at **1000 Sereš u Manje MMR**.
 - Solo MMR uses Elo expectations against the opposing team's average rating.
   A lower-rated player earns more for an upset; an expected favorite earns
   less. The K-factor is 32 and every decisive match changes rating by at least
@@ -75,6 +110,8 @@ npm run test:integration
   pair rating changes against the opposing pair with a K-factor of 36.
 - Ranked and casual results appear in each authenticated player's private
   profile. Only ranked matches change MMR.
+- Sereš u Manje rating is calculated from the player's final standing against
+  every other player in that match. Non-ranked Sereš matches never change MMR.
 - This first persistent version uses a local JSON store. For multiple server
   processes or larger production scale, replace `AccountStore` with a
   transactional database such as PostgreSQL.
@@ -87,6 +124,9 @@ npm run test:integration
   turns, declarations, tricks, and match progression.
 - `src/rules/cards.js` defines and deals the 40-card deck.
 - `src/rules/treseta.js` contains follow-suit, trick, scoring, and akuža rules.
+- `src/rules/modes.js` contains mode identifiers and configurable differences
+  such as player count, team/free-for-all scoring, follow-suit behavior, and
+  automatic hand progression.
 - `src/accounts.js` owns password hashing, signed sessions, persistence, match
   history, and solo/duo Elo calculations.
 - `public/` contains the responsive UI and a locally hosted, freely licensed
@@ -101,8 +141,10 @@ npm run test:integration
 ## Server authority and reconnects
 
 Clients send only intents. The server validates card ownership, turn order,
-follow-suit rules, declarations, signals, trick winners, and scores. Public
-state never contains all hands; each player receives only their own hand.
+follow-suit rules, declarations, signals, trick winners, Sereš windows, real
+akuža claims when challenged, and scores. Public state never contains all
+hands; each player receives only their own hand. The current three-player
+discard is never serialized while its hand is active.
 
 The browser stores a random room-specific reconnection token. A disconnected
 seat remains reserved for 90 seconds. Returning with the token restores that

@@ -47,4 +47,21 @@ function deal(deck, playerCount = 4) {
   return hands;
 }
 
-module.exports = { SUITS, RANKS, createDeck, shuffle, deal };
+function dealSeresUManje(deck, playerCount) {
+  if (![3, 4, 5].includes(playerCount)) {
+    throw new Error("Trešeta Sereš u Manje supports 3 to 5 players.");
+  }
+  const cardsPerPlayer = { 3: 13, 4: 10, 5: 8 }[playerCount];
+  const discard = playerCount === 3 ? deck[0] : null;
+  const cardsToDeal = playerCount === 3 ? deck.slice(1) : deck;
+  const hands = Array.from({ length: playerCount }, () => []);
+  cardsToDeal.forEach((card, index) => {
+    hands[index % playerCount].push(card);
+  });
+  if (hands.some((hand) => hand.length !== cardsPerPlayer)) {
+    throw new Error("Unexpected hand size while dealing.");
+  }
+  return { hands, discard };
+}
+
+module.exports = { SUITS, RANKS, createDeck, shuffle, deal, dealSeresUManje };

@@ -265,6 +265,92 @@ async function run() {
 
   clients.forEach((client) => client?.disconnect());
 
+  await Promise.all([9, 10, 11].map(connectClient));
+  const seresCreated = await intent(clients[9], "createRoom", {
+    nickname: "Mare",
+    settings: {
+      mode: "seres_u_manje",
+      playerCount: 3,
+      ranked: false,
+    },
+  });
+  const seresCode = seresCreated.code;
+  for (let seat = 1; seat < 3; seat += 1) {
+    const joined = await intent(clients[9 + seat], "joinRoom", {
+      nickname: ["", "Niko", "Ola"][seat],
+      code: seresCode,
+    });
+    assert.strictEqual(joined.ok, true);
+  }
+  await waitUntil(() => states[9]?.players.filter(Boolean).length === 3);
+  const seresStarted = await intent(clients[9], "startGame");
+  assert.strictEqual(seresStarted.ok, true);
+  await waitUntil(() => states[9]?.game.status === "akuza");
+  assert.deepStrictEqual(
+    [9, 10, 11].map((index) => states[index].me.hand.length),
+    [13, 13, 13]
+  );
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(states[9].game, "discard"), false);
+
+  while (states[9].game.status === "akuza") {
+    const akuzaSeat = states[9].game.akuzaPhase.currentPlayerSeat;
+    const passed = await intent(clients[9 + akuzaSeat], "passAkuza");
+    assert.strictEqual(passed.ok, true);
+    await waitUntil(
+      () =>
+        states[9].game.status === "playing" ||
+        states[9].game.akuzaPhase.currentPlayerSeat !== akuzaSeat
+    );
+  }
+
+  const leaderSeat = states[9].game.turnSeat;
+  const accusedSeat = (leaderSeat + 1) % 3;
+  const callerSeat = (accusedSeat + 1) % 3;
+  const leaderHand = states[9 + leaderSeat].me.hand;
+  const accusedHand = states[9 + accusedSeat].me.hand;
+  let leaderCard;
+  let accusedCard;
+  let accusedWasLying = false;
+  for (const candidate of leaderHand) {
+    const sameSuit = accusedHand.filter((card) => card.suit === candidate.suit);
+    const otherSuit = accusedHand.find((card) => card.suit !== candidate.suit);
+    if (sameSuit.length && otherSuit) {
+      leaderCard = candidate;
+      accusedCard = otherSuit;
+      accusedWasLying = true;
+      break;
+    }
+    if (!sameSuit.length && accusedHand.length) {
+      leaderCard = candidate;
+      accusedCard = accusedHand[0];
+      accusedWasLying = false;
+      break;
+    }
+  }
+  assert.ok(leaderCard && accusedCard);
+  assert.strictEqual(
+    (await intent(clients[9 + leaderSeat], "playCard", { cardId: leaderCard.id })).ok,
+    true
+  );
+  await waitUntil(() => states[9].game.turnSeat === accusedSeat);
+  assert.ok(states[9 + accusedSeat].me.playableIds.includes(accusedCard.id));
+  assert.strictEqual(
+    (await intent(clients[9 + accusedSeat], "playCard", { cardId: accusedCard.id })).ok,
+    true
+  );
+  await waitUntil(() => states[9 + callerSeat].me.canCallSeres === true);
+  assert.strictEqual(
+    (await intent(clients[9 + callerSeat], "callSeres", { context: "trick_play" })).ok,
+    true
+  );
+  await waitUntil(() => states[9].game.handNumber === 2);
+  const punishedSeat = accusedWasLying ? accusedSeat : callerSeat;
+  assert.strictEqual(states[9].game.playerScores[punishedSeat].thirds, 33);
+  assert.strictEqual(states[9].game.status, "akuza");
+  console.log("✓ three-player Sereš mode deals, skips akuža, allows off-suit play, and redeals after Sereš");
+
+  [9, 10, 11].forEach((index) => clients[index]?.disconnect());
+
   const rankedUsers = ["RankAna", "RankBoris", "RankCvita", "RankDuje"];
   const cookies = [];
   for (const username of rankedUsers) {

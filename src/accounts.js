@@ -64,10 +64,15 @@ function safeAccount(account) {
     id: account.id,
     username: account.username,
     soloMmr: account.soloMmr,
+    seresMmr: account.seresMmr,
     rankedWins: account.rankedWins,
     rankedLosses: account.rankedLosses,
     casualWins: account.casualWins,
     casualLosses: account.casualLosses,
+    seresRankedWins: account.seresRankedWins,
+    seresRankedLosses: account.seresRankedLosses,
+    seresCasualWins: account.seresCasualWins,
+    seresCasualLosses: account.seresCasualLosses,
     createdAt: account.createdAt,
   };
 }
@@ -105,6 +110,18 @@ class AccountStore {
       }
       if (this.sessionSecret) parsed.meta.sessionSecret = this.sessionSecret;
       parsed.accounts ||= [];
+      parsed.accounts.forEach((account) => {
+        account.soloMmr ??= STARTING_MMR;
+        account.seresMmr ??= STARTING_MMR;
+        account.rankedWins ??= 0;
+        account.rankedLosses ??= 0;
+        account.casualWins ??= 0;
+        account.casualLosses ??= 0;
+        account.seresRankedWins ??= 0;
+        account.seresRankedLosses ??= 0;
+        account.seresCasualWins ??= 0;
+        account.seresCasualLosses ??= 0;
+      });
       parsed.duos ||= [];
       parsed.matches ||= [];
       return parsed;
@@ -146,10 +163,15 @@ class AccountStore {
       passwordSalt: passwordData.salt,
       passwordHash: passwordData.hash,
       soloMmr: STARTING_MMR,
+      seresMmr: STARTING_MMR,
       rankedWins: 0,
       rankedLosses: 0,
       casualWins: 0,
       casualLosses: 0,
+      seresRankedWins: 0,
+      seresRankedLosses: 0,
+      seresCasualWins: 0,
+      seresCasualLosses: 0,
       createdAt: Date.now(),
       lastLoginAt: Date.now(),
     };
@@ -223,6 +245,9 @@ class AccountStore {
   recordMatch(summary) {
     if (!summary?.matchId || this.data.matches.some((match) => match.id === summary.matchId)) {
       return null;
+    }
+    if (summary.mode === "seres_u_manje") {
+      return this.recordSeresMatch(summary);
     }
     const participants = summary.players.map((player) => {
       const account = player.accountId ? this.findAccountById(player.accountId) : null;
@@ -321,6 +346,8 @@ class AccountStore {
     const match = {
       id: summary.matchId,
       roomCode: summary.roomCode,
+      mode: summary.mode || "classic",
+      rankingKey: summary.rankingKey || null,
       ranked: Boolean(summary.ranked),
       startedAt: summary.startedAt,
       completedAt: Date.now(),
@@ -335,6 +362,112 @@ class AccountStore {
         seat: participant.seat,
         team: participant.team,
         won: participant.team === summary.winnerTeam,
+        ...(participant.accountId ? ratingByAccount[participant.accountId] : {}),
+      })),
+    };
+
+    this.data.matches.unshift(match);
+    this.data.matches = this.data.matches.slice(0, 5000);
+    this.persist();
+    return { match, ratingByAccount };
+  }
+
+  recordSeresMatch(summary) {
+    const participants = summary.players.map((player) => {
+      const account = player.accountId ? this.findAccountById(player.accountId) : null;
+      const standing = summary.standings.find((entry) => entry.seat === player.seat);
+      return {
+        account,
+        accountId: account?.id || null,
+        username: account?.username || player.nickname,
+        nickname: player.nickname,
+        seat: player.seat,
+        rank: standing?.rank || summary.players.length,
+        scoreThirds: summary.playerScoresThirds[player.seat],
+        lost: player.seat === summary.loserSeat,
+      };
+    });
+
+    if (summary.ranked && participants.some((participant) => !participant.account)) {
+      throw new Error("Rangirana partija zahtijeva prijavljene igrače.");
+    }
+
+    const ratingByAccount = {};
+    const oldRatings = new Map(
+      participants
+        .filter((participant) => participant.account)
+        .map((participant) => [participant.accountId, participant.account.seresMmr])
+    );
+
+    participants.forEach((participant) => {
+      if (!participant.account) return;
+      const won = !participant.lost;
+      const prefix = summary.ranked ? "seresRanked" : "seresCasual";
+      participant.account[`${prefix}${won ? "Wins" : "Losses"}`] += 1;
+      ratingByAccount[participant.accountId] = {
+        mode: "seres_u_manje",
+        won,
+        rank: participant.rank,
+        seresBefore: participant.account.seresMmr,
+        seresAfter: participant.account.seresMmr,
+        seresDelta: 0,
+      };
+    });
+
+    if (summary.ranked) {
+      const kFactor = 32;
+      participants.forEach((participant) => {
+        if (!participant.account) return;
+        const opponents = participants.filter(
+          (candidate) => candidate.accountId !== participant.accountId
+        );
+        const averageAdjustment =
+          opponents.reduce((sum, opponent) => {
+            const expected = expectedScore(
+              oldRatings.get(participant.accountId),
+              oldRatings.get(opponent.accountId)
+            );
+            const actual =
+              participant.rank < opponent.rank
+                ? 1
+                : participant.rank > opponent.rank
+                ? 0
+                : 0.5;
+            return sum + (actual - expected);
+          }, 0) / opponents.length;
+        let delta = Math.round(kFactor * averageAdjustment);
+        if (delta === 0) delta = participant.lost ? -1 : 1;
+        participant.account.seresMmr = Math.max(
+          100,
+          participant.account.seresMmr + delta
+        );
+        const rating = ratingByAccount[participant.accountId];
+        rating.seresAfter = participant.account.seresMmr;
+        rating.seresDelta = participant.account.seresMmr - rating.seresBefore;
+      });
+    }
+
+    const match = {
+      id: summary.matchId,
+      roomCode: summary.roomCode,
+      mode: "seres_u_manje",
+      rankingKey: summary.rankingKey || null,
+      ranked: Boolean(summary.ranked),
+      startedAt: summary.startedAt,
+      completedAt: Date.now(),
+      loserSeat: summary.loserSeat,
+      standings: summary.standings,
+      playerScoresThirds: [...summary.playerScoresThirds],
+      handCount: summary.handCount,
+      settings: { ...summary.settings },
+      players: participants.map((participant) => ({
+        accountId: participant.accountId,
+        username: participant.username,
+        nickname: participant.nickname,
+        seat: participant.seat,
+        rank: participant.rank,
+        scoreThirds: participant.scoreThirds,
+        won: !participant.lost,
         ...(participant.accountId ? ratingByAccount[participant.accountId] : {}),
       })),
     };
@@ -368,6 +501,23 @@ class AccountStore {
       .slice(0, 50)
       .map((match) => {
         const me = match.players.find((player) => player.accountId === accountId);
+        if (match.mode === "seres_u_manje") {
+          return {
+            id: match.id,
+            mode: match.mode,
+            completedAt: match.completedAt,
+            ranked: match.ranked,
+            won: me.won,
+            rank: me.rank,
+            scoreThirds: me.scoreThirds,
+            playerCount: match.players.length,
+            opponents: match.players
+              .filter((player) => player.accountId !== accountId)
+              .map((player) => player.username),
+            seresAfter: me.seresAfter ?? null,
+            seresDelta: me.seresDelta ?? 0,
+          };
+        }
         const partner = match.players.find(
           (player) => player.team === me.team && player.accountId !== accountId
         );
@@ -376,6 +526,7 @@ class AccountStore {
           .map((player) => player.username);
         return {
           id: match.id,
+          mode: match.mode || "classic",
           completedAt: match.completedAt,
           ranked: match.ranked,
           won: me.won,
@@ -395,6 +546,8 @@ class AccountStore {
         ...safeAccount(account),
         rankedGames: account.rankedWins + account.rankedLosses,
         casualGames: account.casualWins + account.casualLosses,
+        seresRankedGames: account.seresRankedWins + account.seresRankedLosses,
+        seresCasualGames: account.seresCasualWins + account.seresCasualLosses,
       },
       duos,
       matches,

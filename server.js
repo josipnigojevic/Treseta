@@ -96,6 +96,7 @@ function withSession(socket, callback, action) {
     const room = rooms.get(session.code);
     if (!room) throw new Error("Soba više ne postoji.");
     const value = action(room, session);
+    if (room.game.status === "matchEnd") recordCompletedMatch(room);
     emitRoom(room);
     callbackResult(callback, { ok: true, value });
   } catch (error) {
@@ -196,11 +197,37 @@ io.on("connection", (socket) => {
     })
   );
 
-  socket.on("declareAkuza", (_payload, callback) =>
+  socket.on("declareAkuza", (payload = {}, callback) =>
     withSession(socket, callback, (room, session) => {
-      const result = room.declareAkuza(session.token);
+      const result = room.declareAkuza(session.token, String(payload.claimId || ""));
       console.log(
         `[room ${room.code}] ${result.player.nickname} declared akuza (${result.points})`
+      );
+    })
+  );
+
+  socket.on("passAkuza", (_payload, callback) =>
+    withSession(socket, callback, (room, session) => {
+      const result = room.passAkuza(session.token);
+      console.log(`[room ${room.code}] ${result.player.nickname} passed akuza`);
+    })
+  );
+
+  socket.on("respondAkuza", (payload = {}, callback) =>
+    withSession(socket, callback, (room, session) => {
+      const result = room.respondAkuza(session.token, String(payload.action || ""));
+      console.log(`[room ${room.code}] akuza response ${payload.action}`, result || "");
+    })
+  );
+
+  socket.on("callSeres", (payload = {}, callback) =>
+    withSession(socket, callback, (room, session) => {
+      const result = room.callSeres(
+        session.token,
+        String(payload.context || "trick_play")
+      );
+      console.log(
+        `[room ${room.code}] Sereš (${result.context}) by ${result.caller.nickname}`
       );
     })
   );

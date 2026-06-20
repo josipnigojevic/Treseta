@@ -24,20 +24,21 @@ const THIRD_VALUES = {
   "4": 0,
 };
 
-function playableCardIds(hand, trick) {
+function playableCardIds(hand, trick, mustFollowSuit = true) {
+  if (!mustFollowSuit) return hand.map((card) => card.id);
   if (!trick.length) return hand.map((card) => card.id);
   const ledSuit = trick[0].card.suit;
   const following = hand.filter((card) => card.suit === ledSuit);
   return (following.length ? following : hand).map((card) => card.id);
 }
 
-function canPlayCard(hand, cardId, trick) {
-  return playableCardIds(hand, trick).includes(cardId);
+function canPlayCard(hand, cardId, trick, mustFollowSuit = true) {
+  return playableCardIds(hand, trick, mustFollowSuit).includes(cardId);
 }
 
 function trickWinner(trick) {
-  if (!Array.isArray(trick) || trick.length !== 4) {
-    throw new Error("A complete trick must contain four cards.");
+  if (!Array.isArray(trick) || trick.length < 2) {
+    throw new Error("A trick must contain at least two cards.");
   }
   const ledSuit = trick[0].card.suit;
   return trick
@@ -113,6 +114,64 @@ function detectAkuza(hand) {
   return combinations;
 }
 
+const AKUZA_CLAIMS = [
+  ...["3", "2", "ace"].flatMap((rank) => {
+    const name = rank === "ace" ? "Asa" : rank === "2" ? "dvojke" : "trice";
+    return [
+      {
+        id: `rank-${rank}-3`,
+        type: "rank-set",
+        rank,
+        count: 3,
+        points: 3,
+        label: `3 ${name}`,
+      },
+      {
+        id: `rank-${rank}-4`,
+        type: "rank-set",
+        rank,
+        count: 4,
+        points: 4,
+        label: `4 ${name}`,
+      },
+    ];
+  }),
+  ...["coins", "cups", "swords", "clubs"].map((suit) => {
+    const suitNames = {
+      coins: "denara",
+      cups: "kupa",
+      swords: "špada",
+      clubs: "baštuna",
+    };
+    return {
+      id: `napolitana-${suit}`,
+      type: "napolitana",
+      suit,
+      points: 3,
+      label: `A–2–3 ${suitNames[suit]}`,
+    };
+  }),
+];
+
+function akuzaClaim(claimId) {
+  return AKUZA_CLAIMS.find((claim) => claim.id === claimId) || null;
+}
+
+function handHasAkuzaClaim(hand, claimId) {
+  const claim = akuzaClaim(claimId);
+  if (!claim) return false;
+  if (claim.type === "rank-set") {
+    return hand.filter((card) => card.rank === claim.rank).length >= claim.count;
+  }
+  return ["ace", "2", "3"].every((rank) =>
+    hand.some((card) => card.suit === claim.suit && card.rank === rank)
+  );
+}
+
+function scoreCardsInThirds(cards) {
+  return countCardThirds(cards);
+}
+
 module.exports = {
   TRICK_STRENGTH,
   THIRD_VALUES,
@@ -122,4 +181,8 @@ module.exports = {
   countCardThirds,
   scoreHand,
   detectAkuza,
+  AKUZA_CLAIMS,
+  akuzaClaim,
+  handHasAkuzaClaim,
+  scoreCardsInThirds,
 };

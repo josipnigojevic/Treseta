@@ -47,6 +47,33 @@
           <div class="room-actions">
             <div class="create-block">
               <p class="form-title">Novi stol</p>
+              <label class="mode-field">
+                <span>Način igre</span>
+                <select id="gameModeSetting">
+                  <option value="classic">Classic Trešeta</option>
+                  <option value="seres_u_manje">Trešeta Sereš u Manje</option>
+                </select>
+              </label>
+              <p id="modeDescription" class="mode-description">
+                Klasična Trešeta za četiri igrača u dvije ekipe.
+              </p>
+              <div id="seresSetup" class="seres-setup hidden">
+                <label>
+                  <span>Vrsta partije</span>
+                  <select id="seresMatchType">
+                    <option value="casual">Non-ranked</option>
+                    <option value="ranked">Ranked</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Broj igrača</span>
+                  <select id="playerCountSetting">
+                    <option value="3">3 igrača</option>
+                    <option value="4" selected>4 igrača</option>
+                    <option value="5">5 igrača</option>
+                  </select>
+                </label>
+              </div>
               <div class="setting-row">
                 <label class="switch-label ranked-switch">
                   <input id="rankedSetting" type="checkbox" />
@@ -122,7 +149,7 @@
       </header>
 
       <section class="score-strip" aria-label="Rezultat">
-        <div class="team-score team-a">
+        <div id="classicTeam0" class="team-score team-a">
           <div>
             <span>Ekipa Maestral</span>
             <small>Sjever + Jug</small>
@@ -134,7 +161,7 @@
           <strong id="turnLabel">Čekamo igrače</strong>
           <small id="settingsLabel"></small>
         </div>
-        <div class="team-score team-b">
+        <div id="classicTeam1" class="team-score team-b">
           <strong id="team1Score">0</strong>
           <div>
             <span>Ekipa Bura</span>
@@ -142,6 +169,7 @@
           </div>
         </div>
       </section>
+      <section id="playerScoreBoard" class="player-score-board hidden" aria-label="Pojedinačni rezultat"></section>
 
       <section class="table-stage">
         <div class="table-halo" aria-hidden="true"></div>
@@ -150,6 +178,7 @@
           <div id="seat1" class="seat seat-east"></div>
           <div id="seat2" class="seat seat-south"></div>
           <div id="seat3" class="seat seat-west"></div>
+          <div id="seat4" class="seat seat-anchor"></div>
 
           <div class="captured-pile pile-a" title="Uzeti štihovi ekipe Maestral">
             <i></i><span id="captured0">0</span>
@@ -163,11 +192,13 @@
             <div class="trick-slot trick-east" data-trick-seat="1"></div>
             <div class="trick-slot trick-south" data-trick-seat="2"></div>
             <div class="trick-slot trick-west" data-trick-seat="3"></div>
+            <div class="trick-slot trick-anchor" data-trick-seat="4"></div>
             <div class="table-emblem" aria-hidden="true">
               <span>TRI</span><i></i><span>ESTE</span>
             </div>
           </div>
 
+          <div id="ledSuitBadge" class="led-suit-badge hidden"></div>
           <div id="tableMessage" class="table-message">Dobro došli za stol.</div>
           <div id="signalFeed" class="signal-feed"></div>
         </div>
@@ -185,6 +216,30 @@
             <strong id="akuzaDescription"></strong>
           </div>
           <button id="declareButton" class="button gold">Prijavi akužu</button>
+        </div>
+
+        <div id="seresAkuzaTurnBar" class="declaration-bar seres-action-bar hidden">
+          <div>
+            <span>Vaš akuža turn</span>
+            <strong>Možete prijaviti stvarnu akužu ili blefirati.</strong>
+          </div>
+          <select id="akuzaClaimSelect"></select>
+          <button id="seresDeclareButton" class="button gold">Prijavi akužu</button>
+          <button id="passAkuzaButton" class="button secondary">Continue / Pass</button>
+        </div>
+
+        <div id="akuzaResponseBar" class="declaration-bar seres-action-bar hidden">
+          <div>
+            <span>Otvorena akuža</span>
+            <strong id="pendingAkuzaDescription"></strong>
+          </div>
+          <button id="continueAkuzaButton" class="button secondary">Continue</button>
+          <button id="seresAkuzaButton" class="button danger">Sereš</button>
+        </div>
+
+        <div id="seresTrickBar" class="seres-trick-bar hidden">
+          <span id="seresTrickDescription"></span>
+          <button id="seresTrickButton" class="button danger">Sereš</button>
         </div>
 
         <div id="signalControls" class="signal-controls hidden">
@@ -321,6 +376,14 @@
           <article>
             <strong>6. Signali</strong>
             <p>Ako su uključeni, Busso, Strišo i Volo dostupni su samo prije izlazne karte.</p>
+          </article>
+          <article class="seres-rule">
+            <strong>Trešeta Sereš u Manje</strong>
+            <p>Free-for-all za 3–5 igrača. Skupljajte što manje bodova; prvi igrač koji dosegne 41 gubi.</p>
+          </article>
+          <article class="seres-rule">
+            <strong>Sereš i akuža</strong>
+            <p>Smijete igrati bilo koju boju i blefirati akužu. Točan Sereš kažnjava lažljivca s 11 bodova; pogrešan kažnjava pozivatelja. U oba slučaja cijela hand odmah završava.</p>
           </article>
         </div>
       </section>
