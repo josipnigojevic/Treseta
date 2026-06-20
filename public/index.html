@@ -14,6 +14,12 @@
     <div class="grain" aria-hidden="true"></div>
 
     <main id="lobbyView" class="lobby-shell">
+      <div class="lobby-account-area">
+        <button id="lobbyAccountButton" class="account-button">
+          <span class="account-avatar">?</span>
+          <span class="account-label">Prijava / registracija</span>
+        </button>
+      </div>
       <section class="lobby-card">
         <div class="brand-lockup">
           <div class="brand-mark" aria-hidden="true">
@@ -42,6 +48,11 @@
             <div class="create-block">
               <p class="form-title">Novi stol</p>
               <div class="setting-row">
+                <label class="switch-label ranked-switch">
+                  <input id="rankedSetting" type="checkbox" />
+                  <span class="switch"></span>
+                  Rangirano
+                </label>
                 <label class="switch-label">
                   <input id="akuzaSetting" type="checkbox" checked />
                   <span class="switch"></span>
@@ -53,6 +64,10 @@
                   Signali
                 </label>
               </div>
+              <p id="rankedNote" class="ranked-note hidden">
+                Rangirana soba traži četiri prijavljena računa. Akuža je
+                uključena, a signali isključeni.
+              </p>
               <button id="createButton" class="button primary">
                 Otvori sobu
               </button>
@@ -97,6 +112,10 @@
         </div>
         <div class="top-actions">
           <span id="spectatorBadge" class="spectator-badge hidden">Gledatelj</span>
+          <button id="gameAccountButton" class="game-account-button">
+            <span class="account-avatar">?</span>
+            <span class="account-label">Prijava</span>
+          </button>
           <button class="icon-button rules-open" aria-label="Pravila">?</button>
           <button id="leaveButton" class="text-button">Izađi</button>
         </div>
@@ -185,11 +204,91 @@
         <p class="eyebrow">Obračun ruke</p>
         <h2 id="scoreTitle">Ruka završena</h2>
         <div id="scoreBreakdown" class="score-breakdown"></div>
+        <div id="ratingSummary" class="rating-summary hidden"></div>
         <div class="modal-actions">
           <button id="nextHandButton" class="button primary hidden">Podijeli novu ruku</button>
           <button id="newMatchButton" class="button primary hidden">Nova partija</button>
           <p id="waitingForHost" class="waiting-note"></p>
         </div>
+      </section>
+    </div>
+
+    <div id="authModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+      <section class="auth-modal">
+        <button id="closeAuthButton" class="modal-close" aria-label="Zatvori">×</button>
+        <p class="eyebrow">Vaš račun</p>
+        <h2 id="authTitle">Prijava</h2>
+        <div class="auth-tabs">
+          <button data-auth-mode="login" class="active">Prijava</button>
+          <button data-auth-mode="register">Novi račun</button>
+        </div>
+        <form id="authForm">
+          <label>
+            <span>Korisničko ime</span>
+            <input
+              id="authUsername"
+              maxlength="20"
+              autocomplete="username"
+              placeholder="npr. Meštar"
+              required
+            />
+          </label>
+          <label>
+            <span>Lozinka</span>
+            <input
+              id="authPassword"
+              type="password"
+              maxlength="128"
+              autocomplete="current-password"
+              placeholder="Najmanje 8 znakova"
+              required
+            />
+          </label>
+          <button id="authSubmitButton" class="button primary" type="submit">
+            Prijavi se
+          </button>
+          <p id="authError" class="form-error" role="alert"></p>
+        </form>
+        <p class="auth-footnote">
+          Rangirane partije i povijest mečeva vežu se uz ovaj račun.
+        </p>
+      </section>
+    </div>
+
+    <div id="profileModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+      <section class="profile-modal">
+        <button id="closeProfileButton" class="modal-close" aria-label="Zatvori">×</button>
+        <div class="profile-heading">
+          <span id="profileAvatar" class="profile-avatar">M</span>
+          <div>
+            <p class="eyebrow">Igrački profil</p>
+            <h2 id="profileUsername">Meštar</h2>
+          </div>
+          <button id="logoutButton" class="profile-logout">Odjava</button>
+        </div>
+
+        <div id="profileStats" class="profile-stats"></div>
+
+        <section class="profile-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Privatno za partnerstvo</p>
+              <h3>Duo MMR</h3>
+            </div>
+            <small>Svaki partner ima zaseban zajednički rating</small>
+          </div>
+          <div id="duoList" class="duo-list"></div>
+        </section>
+
+        <section class="profile-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Posljednjih 50</p>
+              <h3>Povijest mečeva</h3>
+            </div>
+          </div>
+          <div id="matchHistory" class="match-history"></div>
+        </section>
       </section>
     </div>
 

@@ -11,6 +11,8 @@ const elements = {
   lobbyError: $("#lobbyError"),
   akuzaSetting: $("#akuzaSetting"),
   signalsSetting: $("#signalsSetting"),
+  rankedSetting: $("#rankedSetting"),
+  rankedNote: $("#rankedNote"),
   spectate: $("#spectateInput"),
   roomCode: $("#roomCodeLabel"),
   teamScores: [$("#team0Score"), $("#team1Score")],
@@ -35,6 +37,22 @@ const elements = {
   nextHandButton: $("#nextHandButton"),
   newMatchButton: $("#newMatchButton"),
   waitingForHost: $("#waitingForHost"),
+  ratingSummary: $("#ratingSummary"),
+  lobbyAccountButton: $("#lobbyAccountButton"),
+  gameAccountButton: $("#gameAccountButton"),
+  authModal: $("#authModal"),
+  authTitle: $("#authTitle"),
+  authForm: $("#authForm"),
+  authUsername: $("#authUsername"),
+  authPassword: $("#authPassword"),
+  authSubmitButton: $("#authSubmitButton"),
+  authError: $("#authError"),
+  profileModal: $("#profileModal"),
+  profileAvatar: $("#profileAvatar"),
+  profileUsername: $("#profileUsername"),
+  profileStats: $("#profileStats"),
+  duoList: $("#duoList"),
+  matchHistory: $("#matchHistory"),
   rulesModal: $("#rulesModal"),
   toast: $("#toast"),
 };
@@ -48,6 +66,9 @@ let activeCode = null;
 let activeToken = null;
 let toastTimer = null;
 let joining = false;
+let currentAccount = null;
+let authMode = "login";
+let wantsRankedAfterAuth = false;
 
 function loadSessions() {
   try {
@@ -69,6 +90,191 @@ function rememberNickname() {
   if (nickname) localStorage.setItem("tresetaNickname", nickname);
 }
 
+async function apiRequest(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json();
+  if (!result.ok) throw new Error(result.error || "Zahtjev nije uspio.");
+  return result;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function updateAccountUi() {
+  const buttons = [elements.lobbyAccountButton, elements.gameAccountButton];
+  buttons.forEach((button) => {
+    const avatar = button.querySelector(".account-avatar");
+    const label = button.querySelector(".account-label");
+    avatar.textContent = currentAccount
+      ? currentAccount.username.slice(0, 1).toUpperCase()
+      : "?";
+    label.textContent = currentAccount ? currentAccount.username : "Prijava / registracija";
+    button.classList.toggle("signed-in", Boolean(currentAccount));
+  });
+  if (currentAccount) {
+    elements.nickname.value = currentAccount.username;
+    elements.nickname.readOnly = true;
+  } else {
+    elements.nickname.readOnly = false;
+    elements.nickname.value = localStorage.getItem("tresetaNickname") || "";
+  }
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  elements.authTitle.textContent = mode === "login" ? "Prijava" : "Novi račun";
+  elements.authSubmitButton.textContent =
+    mode === "login" ? "Prijavi se" : "Izradi račun";
+  elements.authPassword.autocomplete =
+    mode === "login" ? "current-password" : "new-password";
+  $$("[data-auth-mode]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.authMode === mode);
+  });
+  elements.authError.textContent = "";
+}
+
+function openAuth(mode = "login") {
+  setAuthMode(mode);
+  elements.authModal.classList.remove("hidden");
+  elements.authUsername.value = currentAccount?.username || elements.nickname.value || "";
+  elements.authPassword.value = "";
+}
+
+function closeAuth() {
+  elements.authModal.classList.add("hidden");
+  elements.authError.textContent = "";
+}
+
+function formatDelta(value) {
+  const number = Number(value || 0);
+  return `${number >= 0 ? "+" : ""}${number}`;
+}
+
+function formatMatchDate(timestamp) {
+  return new Intl.DateTimeFormat("hr-HR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function renderProfile(profile) {
+  const account = profile.account;
+  elements.profileAvatar.textContent = account.username.slice(0, 1).toUpperCase();
+  elements.profileUsername.textContent = account.username;
+  const rankedRate = account.rankedGames
+    ? Math.round((account.rankedWins / account.rankedGames) * 100)
+    : 0;
+  elements.profileStats.innerHTML = `
+    <article class="profile-stat">
+      <span>Solo MMR</span>
+      <strong>${account.soloMmr}</strong>
+      <small>Početni rating 1000</small>
+    </article>
+    <article class="profile-stat">
+      <span>Rangirano</span>
+      <strong>${account.rankedWins}–${account.rankedLosses}</strong>
+      <small>${rankedRate}% pobjeda</small>
+    </article>
+    <article class="profile-stat">
+      <span>Ležerno</span>
+      <strong>${account.casualWins}–${account.casualLosses}</strong>
+      <small>${account.casualGames} završenih partija</small>
+    </article>
+  `;
+
+  elements.duoList.innerHTML = profile.duos.length
+    ? profile.duos
+        .map(
+          (duo) => `
+            <article class="duo-item">
+              <div>
+                <strong>${escapeHtml(duo.partnerUsername)}</strong>
+                <small>${duo.wins}–${duo.losses} · ${duo.games} partija</small>
+              </div>
+              <span class="duo-mmr">${duo.mmr}</span>
+            </article>
+          `
+        )
+        .join("")
+    : `<p class="empty-profile-list">Još nemate rangiranih partija s ponovljenim partnerom.</p>`;
+
+  elements.matchHistory.innerHTML = profile.matches.length
+    ? profile.matches
+        .map((match) => {
+          const myScore = match.teamScores[match.myTeam];
+          const theirScore = match.teamScores[match.myTeam === 0 ? 1 : 0];
+          const soloClass = match.soloDelta >= 0 ? "rating-up" : "rating-down";
+          const duoClass = match.duoDelta >= 0 ? "rating-up" : "rating-down";
+          return `
+            <article class="history-item">
+              <span class="history-result ${match.won ? "win" : "loss"}">${
+            match.won ? "Pobjeda" : "Poraz"
+          }</span>
+              <div class="history-players">
+                <strong>S ${escapeHtml(match.partner)} protiv ${escapeHtml(
+            match.opponents.join(" & ")
+          )}</strong>
+                <small>${match.ranked ? "Rangirano" : "Ležerno"} · ${formatMatchDate(
+            match.completedAt
+          )}</small>
+              </div>
+              <span class="history-score">${myScore} : ${theirScore}</span>
+              <span class="history-rating">
+                ${
+                  match.ranked
+                    ? `<span class="${soloClass}">Solo ${formatDelta(
+                        match.soloDelta
+                      )}</span><br><span class="${duoClass}">Duo ${formatDelta(
+                        match.duoDelta
+                      )}</span>`
+                    : "Bez MMR-a"
+                }
+              </span>
+            </article>
+          `;
+        })
+        .join("")
+    : `<p class="empty-profile-list">Vaša povijest mečeva još je prazna.</p>`;
+}
+
+async function openProfile() {
+  if (!currentAccount) {
+    openAuth();
+    return;
+  }
+  try {
+    const result = await apiRequest("/api/profile");
+    renderProfile(result.profile);
+    elements.profileModal.classList.remove("hidden");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function applyRankedSetting() {
+  const ranked = elements.rankedSetting.checked;
+  elements.rankedNote.classList.toggle("hidden", !ranked);
+  if (ranked) {
+    elements.akuzaSetting.checked = true;
+    elements.signalsSetting.checked = false;
+  }
+  elements.akuzaSetting.disabled = ranked;
+  elements.signalsSetting.disabled = ranked;
+}
+
 function showToast(message) {
   elements.toast.textContent = message;
   elements.toast.classList.add("show");
@@ -81,6 +287,7 @@ function ackError(result) {
   const message = result?.error || "Nešto je pošlo po zlu.";
   showToast(message);
   elements.lobbyError.textContent = message;
+  if (message.toLowerCase().includes("prijavljeni")) openAuth();
   return true;
 }
 
@@ -97,12 +304,18 @@ function enterRoom(result) {
 }
 
 function createRoom() {
+  if (elements.rankedSetting.checked && !currentAccount) {
+    wantsRankedAfterAuth = true;
+    openAuth();
+    return;
+  }
   rememberNickname();
   socket.emit(
     "createRoom",
     {
       nickname: elements.nickname.value,
       settings: {
+        ranked: elements.rankedSetting.checked,
         akuza: elements.akuzaSetting.checked,
         signals: elements.signalsSetting.checked,
       },
@@ -212,6 +425,7 @@ function renderSeats(state) {
     meta.className = "seat-meta";
     const pieces = [seatNames[seat], `${state.game.handCounts[seat] || 0} karata`];
     if (state.me.seat === seat) pieces.push("vi");
+    if (player.authenticated) pieces.push("račun");
     if (!player.connected) pieces.push("odsutan");
     meta.textContent = pieces.join(" · ");
     data.append(name, meta);
@@ -343,6 +557,21 @@ function renderScoreOverlay(state) {
     : matchEnded
     ? "Domaćin može pokrenuti novu partiju."
     : "Čekamo domaćina da podijeli novu ruku.";
+
+  const rating = state.me.ratingChange;
+  elements.ratingSummary.classList.toggle(
+    "hidden",
+    !matchEnded || !state.settings.ranked || !rating
+  );
+  if (matchEnded && state.settings.ranked && rating) {
+    elements.ratingSummary.innerHTML = `
+      Solo MMR <strong>${rating.soloBefore} → ${rating.soloAfter}
+      (${formatDelta(rating.soloDelta)})</strong>
+      &nbsp;·&nbsp;
+      Duo MMR <strong>${rating.duoBefore} → ${rating.duoAfter}
+      (${formatDelta(rating.duoDelta)})</strong>
+    `;
+  }
 }
 
 function renderState(state) {
@@ -363,6 +592,7 @@ function renderState(state) {
       : `Ruka ${state.game.handNumber} · štih ${Math.min(state.game.trickNumber, 10)}/10`;
   elements.turnLabel.textContent = state.game.message;
   elements.settingsLabel.textContent = [
+    state.settings.ranked ? "Rangirano" : "Ležerno",
     state.settings.akuza ? "Akuža uključena" : "Bez akuže",
     state.settings.signals ? "Signali uključeni" : "Bez signala",
   ].join(" · ");
@@ -382,6 +612,14 @@ elements.createButton = $("#createButton");
 elements.joinButton = $("#joinButton");
 elements.createButton.addEventListener("click", createRoom);
 elements.joinButton.addEventListener("click", () => joinRoom());
+elements.rankedSetting.addEventListener("change", () => {
+  if (elements.rankedSetting.checked && !currentAccount) {
+    elements.rankedSetting.checked = false;
+    wantsRankedAfterAuth = true;
+    openAuth();
+  }
+  applyRankedSetting();
+});
 elements.codeInput.addEventListener("input", () => {
   elements.codeInput.value = elements.codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 });
@@ -401,6 +639,71 @@ $$("[data-signal]").forEach((button) =>
     emitIntent("signal", { type: button.dataset.signal })
   )
 );
+
+[elements.lobbyAccountButton, elements.gameAccountButton].forEach((button) =>
+  button.addEventListener("click", () =>
+    currentAccount ? openProfile() : openAuth("login")
+  )
+);
+
+$$("[data-auth-mode]").forEach((button) =>
+  button.addEventListener("click", () => setAuthMode(button.dataset.authMode))
+);
+
+elements.authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  elements.authError.textContent = "";
+  elements.authSubmitButton.disabled = true;
+  try {
+    const result = await apiRequest(`/api/auth/${authMode}`, {
+      method: "POST",
+      body: JSON.stringify({
+        username: elements.authUsername.value,
+        password: elements.authPassword.value,
+      }),
+    });
+    currentAccount = result.account;
+    updateAccountUi();
+    closeAuth();
+    if (wantsRankedAfterAuth) {
+      elements.rankedSetting.checked = true;
+      wantsRankedAfterAuth = false;
+      applyRankedSetting();
+    }
+    socket.disconnect();
+    socket.connect();
+    showToast(authMode === "login" ? "Prijavljeni ste." : "Račun je izrađen.");
+  } catch (error) {
+    elements.authError.textContent = error.message;
+  } finally {
+    elements.authSubmitButton.disabled = false;
+  }
+});
+
+$("#closeAuthButton").addEventListener("click", closeAuth);
+elements.authModal.addEventListener("click", (event) => {
+  if (event.target === elements.authModal) closeAuth();
+});
+
+$("#closeProfileButton").addEventListener("click", () =>
+  elements.profileModal.classList.add("hidden")
+);
+elements.profileModal.addEventListener("click", (event) => {
+  if (event.target === elements.profileModal) {
+    elements.profileModal.classList.add("hidden");
+  }
+});
+$("#logoutButton").addEventListener("click", async () => {
+  try {
+    await apiRequest("/api/auth/logout", { method: "POST" });
+    currentAccount = null;
+    updateAccountUi();
+    localStorage.removeItem("tresetaLastRoom");
+    window.location.href = window.location.pathname;
+  } catch (error) {
+    showToast(error.message);
+  }
+});
 
 $("#copyInviteButton").addEventListener("click", async () => {
   const url = new URL(window.location.href);
@@ -428,7 +731,11 @@ elements.rulesModal.addEventListener("click", (event) => {
   if (event.target === elements.rulesModal) elements.rulesModal.classList.add("hidden");
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") elements.rulesModal.classList.add("hidden");
+  if (event.key === "Escape") {
+    elements.rulesModal.classList.add("hidden");
+    elements.authModal.classList.add("hidden");
+    elements.profileModal.classList.add("hidden");
+  }
 });
 
 socket.on("state", renderState);
@@ -439,11 +746,23 @@ socket.on("connect", () => {
 });
 socket.on("disconnect", () => showToast("Veza je prekinuta. Pokušavam se vratiti…"));
 
-elements.nickname.value = localStorage.getItem("tresetaNickname") || "";
-const roomFromUrl = new URLSearchParams(window.location.search).get("room");
-if (roomFromUrl) {
-  const code = roomFromUrl.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
-  elements.codeInput.value = code;
-  const token = loadSessions()[code];
-  if (token && elements.nickname.value) joinRoom(code, token);
+async function initialize() {
+  try {
+    const result = await apiRequest("/api/auth/me");
+    currentAccount = result.account;
+  } catch (_error) {
+    currentAccount = null;
+  }
+  updateAccountUi();
+  applyRankedSetting();
+
+  const roomFromUrl = new URLSearchParams(window.location.search).get("room");
+  if (roomFromUrl) {
+    const code = roomFromUrl.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
+    elements.codeInput.value = code;
+    const token = loadSessions()[code];
+    if (token && elements.nickname.value) joinRoom(code, token);
+  }
 }
+
+initialize();

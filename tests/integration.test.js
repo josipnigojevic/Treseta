@@ -1,4 +1,7 @@
 const assert = require("assert");
+const fs = require("fs");
+const http = require("http");
+const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const { io } = require("socket.io-client");
@@ -6,6 +9,8 @@ const { io } = require("socket.io-client");
 const PORT = 3197;
 const URL = `http://127.0.0.1:${PORT}`;
 const root = path.join(__dirname, "..");
+const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "treseta-integration-"));
+const dataFile = path.join(dataDirectory, "data.json");
 let serverProcess;
 const clients = [];
 const states = [];
@@ -35,7 +40,13 @@ function startServer() {
   return new Promise((resolve, reject) => {
     serverProcess = spawn(process.execPath, ["server.js"], {
       cwd: root,
-      env: { ...process.env, PORT: String(PORT) },
+      env: {
+        ...process.env,
+        PORT: String(PORT),
+        DATA_FILE: dataFile,
+        AUTH_SECRET: "integration-test-secret",
+        TRICK_DELAY_MS: "2",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -62,12 +73,13 @@ function startServer() {
   });
 }
 
-function connectClient(index) {
+function connectClient(index, cookie = "") {
   return new Promise((resolve, reject) => {
     const client = io(URL, {
       transports: ["websocket"],
       forceNew: true,
       reconnection: false,
+      extraHeaders: cookie ? { Cookie: cookie } : undefined,
     });
     clients[index] = client;
     client.on("state", (state) => {
@@ -78,6 +90,47 @@ function connectClient(index) {
   });
 }
 
+function httpRequest(method, pathname, body = null, cookie = "") {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : "";
+    const request = http.request(
+      URL + pathname,
+      {
+        method,
+        headers: {
+          ...(body
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(payload),
+              }
+            : {}),
+          ...(cookie ? { Cookie: cookie } : {}),
+        },
+      },
+      (response) => {
+        let text = "";
+        response.on("data", (chunk) => {
+          text += chunk.toString();
+        });
+        response.on("end", () => {
+          try {
+            resolve({
+              status: response.statusCode,
+              body: JSON.parse(text),
+              cookie: response.headers["set-cookie"]?.[0]?.split(";")[0] || "",
+            });
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
+    );
+    request.on("error", reject);
+    if (payload) request.write(payload);
+    request.end();
+  });
+}
+
 function intent(client, event, payload = {}) {
   return new Promise((resolve, reject) => {
     client.emit(event, payload, (result) => {
@@ -85,6 +138,38 @@ function intent(client, event, payload = {}) {
       resolve(result);
     });
   });
+}
+
+async function autoplayHand(clientIndices) {
+  const observerIndex = clientIndices[0];
+  let plays = 0;
+  while (states[observerIndex].game.status === "playing" && plays < 40) {
+    await waitUntil(() => states[observerIndex].game.turnSeat !== null);
+    const turn = states[observerIndex].game.turnSeat;
+    const clientIndex = clientIndices[turn];
+    await waitUntil(() => states[clientIndex]?.me.playableIds?.length > 0);
+    const beforeCount = states[clientIndex].me.hand.length;
+    const result = await intent(clients[clientIndex], "playCard", {
+      cardId: states[clientIndex].me.playableIds[0],
+    });
+    assert.strictEqual(result.ok, true);
+    plays += 1;
+    await waitUntil(() => states[clientIndex].me.hand.length === beforeCount - 1);
+    if (plays % 4 === 0) {
+      await waitUntil(
+        () =>
+          states[observerIndex].game.status !== "playing" ||
+          states[observerIndex].game.turnSeat !== null,
+        3500
+      );
+    }
+  }
+  assert.strictEqual(plays, 40);
+  await waitUntil(
+    () =>
+      states[observerIndex].game.status === "handEnd" ||
+      states[observerIndex].game.status === "matchEnd"
+  );
 }
 
 async function run() {
@@ -162,28 +247,7 @@ async function run() {
   });
   assert.strictEqual(illegalTurn.ok, false);
 
-  let plays = 0;
-  while (states[0].game.status === "playing" && plays < 40) {
-    await waitUntil(() => states[0].game.turnSeat !== null);
-    const turn = states[0].game.turnSeat;
-    await waitUntil(() => states[turn]?.me.playableIds?.length > 0);
-    const beforeCount = states[turn].me.hand.length;
-    const result = await intent(clients[turn], "playCard", {
-      cardId: states[turn].me.playableIds[0],
-    });
-    assert.strictEqual(result.ok, true);
-    plays += 1;
-    await waitUntil(() => states[turn].me.hand.length === beforeCount - 1);
-    if (plays % 4 === 0) {
-      await waitUntil(
-        () => states[0].game.status !== "playing" || states[0].game.turnSeat !== null,
-        3500
-      );
-    }
-  }
-
-  assert.strictEqual(plays, 40);
-  await waitUntil(() => states[0].game.status === "handEnd");
+  await autoplayHand([0, 1, 2, 3]);
   assert.ok(Array.isArray(states[0].game.handBreakdown));
   assert.strictEqual(states[0].game.handBreakdown.length, 2);
   assert.ok(
@@ -198,6 +262,62 @@ async function run() {
   console.log("✓ four independent clients create, join, reconnect, spectate, and play");
   console.log("✓ server rejects illegal turns and repeated signals");
   console.log("✓ all 40 cards complete a scored Trešeta hand");
+
+  clients.forEach((client) => client?.disconnect());
+
+  const rankedUsers = ["RankAna", "RankBoris", "RankCvita", "RankDuje"];
+  const cookies = [];
+  for (const username of rankedUsers) {
+    const registered = await httpRequest("POST", "/api/auth/register", {
+      username,
+      password: "integration-password",
+    });
+    assert.strictEqual(registered.status, 201);
+    assert.ok(registered.cookie.includes("treseta_session="));
+    cookies.push(registered.cookie);
+  }
+
+  await Promise.all([0, 1, 2, 3].map((seat) => connectClient(5 + seat, cookies[seat])));
+  const rankedCreated = await intent(clients[5], "createRoom", {
+    settings: { ranked: true, akuza: false, signals: true },
+  });
+  assert.strictEqual(rankedCreated.ok, true);
+  const rankedCode = rankedCreated.code;
+  for (let seat = 1; seat < 4; seat += 1) {
+    const joined = await intent(clients[5 + seat], "joinRoom", {
+      code: rankedCode,
+    });
+    assert.strictEqual(joined.ok, true);
+  }
+  await waitUntil(() => states[5]?.players.filter(Boolean).length === 4);
+  assert.strictEqual(states[5].settings.ranked, true);
+  assert.strictEqual(states[5].settings.akuza, true);
+  assert.strictEqual(states[5].settings.signals, false);
+  assert.ok(states[5].players.every((player) => player.authenticated));
+
+  const rankedStarted = await intent(clients[5], "startGame");
+  assert.strictEqual(rankedStarted.ok, true);
+  await waitUntil(() => states[5]?.game.status === "playing");
+  while (states[5].game.status !== "matchEnd") {
+    await autoplayHand([5, 6, 7, 8]);
+    if (states[5].game.status === "handEnd") {
+      const next = await intent(clients[5], "nextHand");
+      assert.strictEqual(next.ok, true);
+      await waitUntil(() => states[5].game.status === "playing");
+    }
+  }
+  await waitUntil(() => Boolean(states[5].me.ratingChange));
+  assert.notStrictEqual(states[5].me.ratingChange.soloAfter, 1000);
+  assert.notStrictEqual(states[5].me.ratingChange.duoAfter, 1000);
+
+  const profile = await httpRequest("GET", "/api/profile", null, cookies[0]);
+  assert.strictEqual(profile.status, 200);
+  assert.strictEqual(profile.body.profile.account.rankedGames, 1);
+  assert.strictEqual(profile.body.profile.duos.length, 1);
+  assert.strictEqual(profile.body.profile.matches[0].ranked, true);
+
+  console.log("✓ authenticated ranked room enforces fixed competitive settings");
+  console.log("✓ a full match to 41 updates solo MMR, duo MMR, and private history");
   console.log("\nSocket.IO integration test passed.");
 }
 
@@ -209,4 +329,5 @@ run()
   .finally(() => {
     clients.forEach((client) => client?.disconnect());
     if (serverProcess && !serverProcess.killed) serverProcess.kill();
+    fs.rmSync(dataDirectory, { recursive: true, force: true });
   });

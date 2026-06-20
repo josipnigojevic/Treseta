@@ -3,8 +3,11 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const { RoomManager, cleanName, cleanCode } = require("./src/rooms");
+const { AccountStore, parseCookies } = require("./src/accounts");
 
 const PORT = process.env.PORT || 3000;
+const TRICK_DELAY_MS = Number(process.env.TRICK_DELAY_MS || 1050);
+const COOKIE_NAME = "treseta_session";
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -12,9 +15,66 @@ const io = new Server(server, {
   pingTimeout: 20_000,
 });
 const rooms = new RoomManager();
+const accounts = new AccountStore();
 
+app.use(express.json({ limit: "16kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 app.get("/health", (_req, res) => res.json({ ok: true, rooms: rooms.rooms.size }));
+
+function cookieFor(token, maxAge = 30 * 24 * 60 * 60) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${COOKIE_NAME}=${encodeURIComponent(
+    token
+  )}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+}
+
+function accountFromCookieHeader(header) {
+  return accounts.accountFromToken(parseCookies(header)[COOKIE_NAME]);
+}
+
+function requireHttpAccount(req, res) {
+  const account = accountFromCookieHeader(req.headers.cookie);
+  if (!account) {
+    res.status(401).json({ ok: false, error: "Morate biti prijavljeni." });
+    return null;
+  }
+  return account;
+}
+
+app.get("/api/auth/me", (req, res) => {
+  res.json({ ok: true, account: accountFromCookieHeader(req.headers.cookie) });
+});
+
+app.post("/api/auth/register", (req, res) => {
+  try {
+    const account = accounts.register(req.body?.username, req.body?.password);
+    res.setHeader("Set-Cookie", cookieFor(accounts.createSessionToken(account.id)));
+    res.status(201).json({ ok: true, account });
+  } catch (error) {
+    res.status(400).json({ ok: false, error: error.message });
+  }
+});
+
+app.post("/api/auth/login", (req, res) => {
+  try {
+    const account = accounts.authenticate(req.body?.username, req.body?.password);
+    res.setHeader("Set-Cookie", cookieFor(accounts.createSessionToken(account.id)));
+    res.json({ ok: true, account });
+  } catch (error) {
+    res.status(401).json({ ok: false, error: error.message });
+  }
+});
+
+app.post("/api/auth/logout", (_req, res) => {
+  res.setHeader("Set-Cookie", cookieFor("", 0));
+  res.json({ ok: true });
+});
+
+app.get("/api/profile", (req, res) => {
+  const account = requireHttpAccount(req, res);
+  if (!account) return;
+  res.json({ ok: true, profile: accounts.profileFor(account.id) });
+});
 
 function callbackResult(callback, result) {
   if (typeof callback === "function") callback(result);
@@ -43,12 +103,36 @@ function withSession(socket, callback, action) {
   }
 }
 
+function recordCompletedMatch(room) {
+  if (room.game.status !== "matchEnd" || room.game.resultRecorded) return null;
+  const summary = room.matchSummary();
+  if (!summary) return null;
+  const result = accounts.recordMatch(summary);
+  room.game.resultRecorded = true;
+  if (result?.ratingByAccount) room.game.ratingChanges = result.ratingByAccount;
+  console.log(
+    `[room ${room.code}] ${room.settings.ranked ? "ranked" : "casual"} match recorded`
+  );
+  return result;
+}
+
+io.use((socket, next) => {
+  socket.data.account = accountFromCookieHeader(socket.handshake.headers.cookie);
+  next();
+});
+
 io.on("connection", (socket) => {
   socket.on("createRoom", (payload = {}, callback) => {
     try {
-      const nickname = cleanName(payload.nickname);
+      const account = socket.data.account;
+      const nickname = account?.username || cleanName(payload.nickname);
       if (!nickname) throw new Error("Upišite nadimak.");
-      const { room, session } = rooms.create(nickname, socket.id, payload.settings);
+      const { room, session } = rooms.create(
+        nickname,
+        socket.id,
+        payload.settings,
+        account
+      );
       socket.data.session = { code: room.code, token: session.token, role: "player" };
       socket.join(room.code);
       console.log(`[room ${room.code}] created by ${nickname}`);
@@ -61,7 +145,8 @@ io.on("connection", (socket) => {
 
   socket.on("joinRoom", (payload = {}, callback) => {
     try {
-      const nickname = cleanName(payload.nickname);
+      const account = socket.data.account;
+      const nickname = account?.username || cleanName(payload.nickname);
       const code = cleanCode(payload.code);
       if (!nickname) throw new Error("Upišite nadimak.");
       const room = rooms.get(code);
@@ -70,7 +155,8 @@ io.on("connection", (socket) => {
         nickname,
         socket.id,
         String(payload.token || ""),
-        Boolean(payload.spectate)
+        Boolean(payload.spectate),
+        account
       );
       socket.data.session = { code, token: result.token, role: result.role };
       socket.join(code);
@@ -144,8 +230,9 @@ io.on("connection", (socket) => {
               )}`
             );
           }
+          if (room.game.status === "matchEnd") recordCompletedMatch(room);
           emitRoom(room);
-        }, 1050);
+        }, TRICK_DELAY_MS);
       }
     })
   );
@@ -169,4 +256,4 @@ server.listen(PORT, () => {
   console.log(`Trešeta Online listening on http://localhost:${PORT}`);
 });
 
-module.exports = { app, server, rooms };
+module.exports = { app, server, rooms, accounts };

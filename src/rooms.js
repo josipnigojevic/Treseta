@@ -32,26 +32,29 @@ function teamForSeat(seat) {
 }
 
 class Room {
-  constructor(code, hostName, socketId, settings = {}) {
+  constructor(code, hostName, socketId, settings = {}, account = null) {
     const token = makeToken();
     this.code = code;
     this.createdAt = Date.now();
     this.lastActiveAt = Date.now();
+    const ranked = Boolean(settings.ranked);
     this.settings = {
-      akuza: settings.akuza !== false,
-      signals: settings.signals !== false,
+      ranked,
+      akuza: ranked ? true : settings.akuza !== false,
+      signals: ranked ? false : settings.signals !== false,
     };
     this.hostToken = token;
     this.players = Array(4).fill(null);
-    this.players[0] = this.makePlayer(hostName, 0, token, socketId);
+    this.players[0] = this.makePlayer(hostName, 0, token, socketId, account);
     this.spectators = new Map();
     this.game = this.emptyGame();
   }
 
-  makePlayer(nickname, seat, token = makeToken(), socketId = null) {
+  makePlayer(nickname, seat, token = makeToken(), socketId = null, account = null) {
     return {
       token,
-      nickname: cleanName(nickname) || `Igrač ${seat + 1}`,
+      nickname: account?.username || cleanName(nickname) || `Igrač ${seat + 1}`,
+      accountId: account?.id || null,
       seat,
       socketId,
       connected: Boolean(socketId),
@@ -81,6 +84,10 @@ class Room {
       lastTrickWinnerSeat: null,
       handBreakdown: null,
       winnerTeam: null,
+      matchId: null,
+      matchStartedAt: null,
+      ratingChanges: {},
+      resultRecorded: false,
       message: "Čeka se da se stol popuni.",
     };
   }
@@ -93,40 +100,74 @@ class Room {
     return this.players.filter((player) => player?.connected).length;
   }
 
-  join(nickname, socketId, token, spectate = false) {
+  join(nickname, socketId, token, spectate = false, account = null) {
     this.touch();
     const existing = token
       ? this.players.find((player) => player?.token === token)
       : null;
     if (existing) {
+      if (existing.accountId && existing.accountId !== account?.id) {
+        throw new Error("Prijavite se na račun koji pripada ovom mjestu.");
+      }
+      if (!existing.accountId && account) {
+        if (this.players.some((player) => player?.accountId === account.id)) {
+          throw new Error("Taj račun je već za stolom.");
+        }
+        existing.accountId = account.id;
+        existing.nickname = account.username;
+      }
       existing.socketId = socketId;
       existing.connected = true;
       existing.reservedUntil = null;
       return { role: "player", token: existing.token, seat: existing.seat, reconnected: true };
     }
 
-    if (spectate) return this.addSpectator(nickname, socketId, token);
+    if (spectate) return this.addSpectator(nickname, socketId, token, account);
+    if (this.settings.ranked && !account) {
+      throw new Error("Za rangiranu sobu morate biti prijavljeni.");
+    }
+    const accountSeat = account
+      ? this.players.find((player) => player?.accountId === account.id)
+      : null;
+    if (accountSeat) {
+      if (accountSeat.connected) throw new Error("Taj račun je već za stolom.");
+      accountSeat.socketId = socketId;
+      accountSeat.connected = true;
+      accountSeat.reservedUntil = null;
+      return {
+        role: "player",
+        token: accountSeat.token,
+        seat: accountSeat.seat,
+        reconnected: true,
+      };
+    }
 
     const now = Date.now();
     const openSeat = this.players.findIndex(
-      (player) => !player || (!player.connected && player.reservedUntil && player.reservedUntil <= now)
+      (player) =>
+        !player ||
+        (!this.settings.ranked &&
+          !player.connected &&
+          player.reservedUntil &&
+          player.reservedUntil <= now)
     );
     if (openSeat === -1) {
-      return this.addSpectator(nickname, socketId, token);
+      return this.addSpectator(nickname, socketId, token, account);
     }
 
     const replacing = this.players[openSeat];
-    const player = this.makePlayer(nickname, openSeat, makeToken(), socketId);
+    const player = this.makePlayer(nickname, openSeat, makeToken(), socketId, account);
     this.players[openSeat] = player;
     if (replacing?.token === this.hostToken) this.hostToken = player.token;
     return { role: "player", token: player.token, seat: openSeat, reconnected: false };
   }
 
-  addSpectator(nickname, socketId, token) {
+  addSpectator(nickname, socketId, token, account = null) {
     const spectatorToken = token || makeToken();
     this.spectators.set(socketId, {
       token: spectatorToken,
-      nickname: cleanName(nickname) || "Gledatelj",
+      nickname: account?.username || cleanName(nickname) || "Gledatelj",
+      accountId: account?.id || null,
     });
     return { role: "spectator", token: spectatorToken, seat: null, reconnected: false };
   }
@@ -162,9 +203,18 @@ class Room {
     this.requireHost(token);
     if (this.players.some((player) => !player)) throw new Error("Potrebna su četiri igrača.");
     if (this.connectedCount() !== 4) throw new Error("Sva četiri igrača moraju biti spojena.");
+    if (
+      this.settings.ranked &&
+      (this.players.some((player) => !player.accountId) ||
+        new Set(this.players.map((player) => player.accountId)).size !== 4)
+    ) {
+      throw new Error("Rangirana partija zahtijeva četiri različita prijavljena računa.");
+    }
     this.game = this.emptyGame();
     this.game.teamScores = [0, 0];
     this.game.dealerSeat = Math.floor(Math.random() * 4);
+    this.game.matchId = makeToken();
+    this.game.matchStartedAt = Date.now();
     this.dealNextHand(token, true);
   }
 
@@ -348,6 +398,7 @@ class Room {
               connected: player.connected,
               reservedUntil: player.reservedUntil,
               isHost: player.token === this.hostToken,
+              authenticated: Boolean(player.accountId),
             }
           : null
       ),
@@ -369,6 +420,7 @@ class Room {
         lastTrickWinnerSeat: this.game.lastTrickWinnerSeat,
         handBreakdown: this.game.handBreakdown,
         winnerTeam: this.game.winnerTeam,
+        matchId: this.game.matchId,
         message: this.game.message,
       },
     };
@@ -396,12 +448,16 @@ class Room {
         role: "player",
         seat: player.seat,
         isHost: player.token === this.hostToken,
+        authenticated: Boolean(player.accountId),
         hand,
         playableIds:
           this.game.status === "playing" && this.game.turnSeat === player.seat
             ? playableCardIds(hand, this.game.trick)
             : [],
         akuza,
+        ratingChange: player.accountId
+          ? this.game.ratingChanges[player.accountId] || null
+          : null,
         canSignal:
           this.settings.signals &&
           this.game.status === "playing" &&
@@ -410,6 +466,25 @@ class Room {
           !this.game.pendingTrick &&
           !this.game.signaledThisLead,
       },
+    };
+  }
+
+  matchSummary() {
+    if (this.game.status !== "matchEnd" || this.game.winnerTeam === null) return null;
+    return {
+      matchId: this.game.matchId,
+      roomCode: this.code,
+      ranked: this.settings.ranked,
+      settings: { ...this.settings },
+      startedAt: this.game.matchStartedAt,
+      winnerTeam: this.game.winnerTeam,
+      teamScores: [...this.game.teamScores],
+      handCount: this.game.handNumber,
+      players: this.players.map((player) => ({
+        accountId: player.accountId,
+        nickname: player.nickname,
+        seat: player.seat,
+      })),
     };
   }
 }
@@ -430,9 +505,12 @@ class RoomManager {
     return code;
   }
 
-  create(hostName, socketId, settings) {
+  create(hostName, socketId, settings, account = null) {
     const code = this.generateCode();
-    const room = new Room(code, hostName, socketId, settings);
+    if (settings?.ranked && !account) {
+      throw new Error("Za rangiranu sobu morate biti prijavljeni.");
+    }
+    const room = new Room(code, hostName, socketId, settings, account);
     this.rooms.set(code, room);
     const player = room.players[0];
     return { room, session: { role: "player", token: player.token, seat: 0 } };
