@@ -67,6 +67,36 @@ button {
   right: 24px;
   top: 22px;
   z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.language-picker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #b9c8c1;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.language-select {
+  min-width: 96px;
+  padding: 7px 27px 7px 10px;
+  color: #e7eee9;
+  border: 1px solid rgba(237, 220, 184, 0.24);
+  border-radius: 18px;
+  background-color: rgba(5, 24, 18, 0.92);
+  font: inherit;
+  cursor: pointer;
+}
+
+.language-picker.compact .language-select {
+  min-width: 58px;
+  padding: 5px 22px 5px 8px;
 }
 
 .account-button,
@@ -1697,6 +1727,14 @@ button.playing-card {
     display: none;
   }
 
+  .lobby-account-area .language-picker > span {
+    display: none;
+  }
+
+  .lobby-account-area .language-select {
+    min-width: 76px;
+  }
+
   .lobby-card {
     grid-template-columns: 1fr;
   }
@@ -1738,6 +1776,10 @@ button.playing-card {
 
   .top-actions {
     gap: 5px;
+  }
+
+  .top-actions .language-picker {
+    display: none;
   }
 
   .game-account-button {

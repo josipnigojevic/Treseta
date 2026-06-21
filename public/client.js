@@ -1,4 +1,14 @@
 const socket = io();
+const {
+  t,
+  count,
+  locale,
+  translateError,
+  translateServerText,
+  akuzaLabel,
+  signalLabel,
+  isAuthenticationError,
+} = window.TresetaI18n;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -73,14 +83,8 @@ const elements = {
   toast: $("#toast"),
 };
 
-const seatNames = ["Sjever", "Istok", "Jug", "Zapad", "Sidro"];
+const seatKeys = ["north", "east", "south", "west", "anchor"];
 const teamNames = ["Maestral", "Bura"];
-const suitNames = {
-  coins: "Denari",
-  cups: "Kupe",
-  swords: "Špade",
-  clubs: "Baštuni",
-};
 const suitOrder = ["coins", "cups", "swords", "clubs"];
 const rankOrder = ["3", "2", "ace", "king", "horse", "jack", "7", "6", "5", "4"];
 let currentState = null;
@@ -127,11 +131,11 @@ function updateChallengeCountdown() {
   const pending = currentState.game.akuzaPhase?.pendingDeclaration;
   if (pending && currentState.me.canRespondAkuza) {
     const declarer = currentState.players[pending.declarerSeat];
-    elements.pendingAkuzaDescription.textContent = `${
-      declarer?.nickname || "Igrač"
-    } declared ${pending.label}. Continue or call Sereš · ${challengeSecondsLeft(
-      pending.deadlineAt
-    )} s`;
+    elements.pendingAkuzaDescription.textContent = t("challenge.akuza", {
+      player: declarer?.nickname || t("game.playerFallback"),
+      claim: akuzaLabel({ id: pending.claimId, label: pending.label }),
+      seconds: challengeSecondsLeft(pending.deadlineAt),
+    });
   }
   const opportunity = currentState.game.seresOpportunity;
   if (
@@ -139,11 +143,10 @@ function updateChallengeCountdown() {
     (currentState.me.canCallSeres || currentState.me.canContinueSeres)
   ) {
     const accused = currentState.players[opportunity.accusedSeat];
-    elements.seresTrickDescription.textContent = `${
-      accused?.nickname || "Igrač"
-    } nije pratio led suit · ${challengeSecondsLeft(
-      opportunity.deadlineAt
-    )} s za Continue ili Sereš`;
+    elements.seresTrickDescription.textContent = t("challenge.offSuit", {
+      player: accused?.nickname || t("game.playerFallback"),
+      seconds: challengeSecondsLeft(opportunity.deadlineAt),
+    });
   }
 }
 
@@ -176,7 +179,9 @@ async function apiRequest(url, options = {}) {
     },
   });
   const result = await response.json();
-  if (!result.ok) throw new Error(result.error || "Zahtjev nije uspio.");
+  if (!result.ok) {
+    throw new Error(translateError(result.error) || t("generic.requestFailed"));
+  }
   return result;
 }
 
@@ -197,7 +202,9 @@ function updateAccountUi() {
     avatar.textContent = currentAccount
       ? currentAccount.username.slice(0, 1).toUpperCase()
       : "?";
-    label.textContent = currentAccount ? currentAccount.username : "Prijava / registracija";
+    label.textContent = currentAccount
+      ? currentAccount.username
+      : t("account.loginRegister");
     button.classList.toggle("signed-in", Boolean(currentAccount));
   });
   if (currentAccount) {
@@ -211,9 +218,10 @@ function updateAccountUi() {
 
 function setAuthMode(mode) {
   authMode = mode;
-  elements.authTitle.textContent = mode === "login" ? "Prijava" : "Novi račun";
+  elements.authTitle.textContent =
+    mode === "login" ? t("account.login") : t("account.newAccount");
   elements.authSubmitButton.textContent =
-    mode === "login" ? "Prijavi se" : "Izradi račun";
+    mode === "login" ? t("account.signIn") : t("account.create");
   elements.authPassword.autocomplete =
     mode === "login" ? "current-password" : "new-password";
   $$("[data-auth-mode]").forEach((button) => {
@@ -240,7 +248,7 @@ function formatDelta(value) {
 }
 
 function formatMatchDate(timestamp) {
-  return new Intl.DateTimeFormat("hr-HR", {
+  return new Intl.DateTimeFormat(locale(), {
     day: "2-digit",
     month: "2-digit",
     year: "2-digit",
@@ -258,22 +266,22 @@ function renderProfile(profile) {
     <article class="profile-stat">
       <span>Solo MMR</span>
       <strong>${account.soloMmr}</strong>
-      <small>Početni rating 1000</small>
+      <small>${t("profile.startingRating")}</small>
     </article>
     <article class="profile-stat">
       <span>Sereš MMR</span>
       <strong>${account.seresMmr}</strong>
-      <small>Zaseban rang za u manje</small>
+      <small>${t("profile.separateSeres")}</small>
     </article>
     <article class="profile-stat">
-      <span>Rangirano</span>
+      <span>${t("common.ranked")}</span>
       <strong>${account.rankedWins}–${account.rankedLosses}</strong>
-      <small>${rankedRate}% pobjeda</small>
+      <small>${t("profile.winsPercent", { percent: rankedRate })}</small>
     </article>
     <article class="profile-stat">
       <span>Sereš u manje</span>
       <strong>${account.seresRankedWins}–${account.seresRankedLosses}</strong>
-      <small>${account.seresRankedGames} rangiranih partija</small>
+      <small>${count("rankedMatch", account.seresRankedGames)}</small>
     </article>
   `;
 
@@ -284,14 +292,17 @@ function renderProfile(profile) {
             <article class="duo-item">
               <div>
                 <strong>${escapeHtml(duo.partnerUsername)}</strong>
-                <small>${duo.wins}–${duo.losses} · ${duo.games} partija</small>
+                <small>${duo.wins}–${duo.losses} · ${count(
+                  "match",
+                  duo.games
+                )}</small>
               </div>
               <span class="duo-mmr">${duo.mmr}</span>
             </article>
           `
         )
         .join("")
-    : `<p class="empty-profile-list">Još nemate rangiranih partija s ponovljenim partnerom.</p>`;
+    : `<p class="empty-profile-list">${t("profile.noDuos")}</p>`;
 
   elements.matchHistory.innerHTML = profile.matches.length
     ? profile.matches
@@ -301,11 +312,13 @@ function renderProfile(profile) {
             return `
               <article class="history-item">
                 <span class="history-result ${match.won ? "win" : "loss"}">${
-              match.won ? `#${match.rank}` : "Poraz"
+              match.won ? `#${match.rank}` : t("profile.loss")
             }</span>
                 <div class="history-players">
-                  <strong>Trešeta Sereš u Manje · ${match.playerCount} igrača</strong>
-                  <small>${match.ranked ? "Rangirano" : "Non-ranked"} · ${formatMatchDate(
+                  <strong>${t("profile.modePlayers", {
+                    players: count("player", match.playerCount),
+                  })}</strong>
+                  <small>${match.ranked ? t("common.ranked") : t("common.casual")} · ${formatMatchDate(
               match.completedAt
             )}</small>
                 </div>
@@ -315,7 +328,7 @@ function renderProfile(profile) {
                     ? `<span class="${seresClass}">MMR ${formatDelta(
                         match.seresDelta
                       )}</span>`
-                    : "Bez MMR-a"
+                    : t("profile.noMmr")
                 }</span>
               </article>
             `;
@@ -327,13 +340,14 @@ function renderProfile(profile) {
           return `
             <article class="history-item">
               <span class="history-result ${match.won ? "win" : "loss"}">${
-            match.won ? "Pobjeda" : "Poraz"
+            match.won ? t("profile.victory") : t("profile.loss")
           }</span>
               <div class="history-players">
-                <strong>S ${escapeHtml(match.partner)} protiv ${escapeHtml(
-            match.opponents.join(" & ")
-          )}</strong>
-                <small>${match.ranked ? "Rangirano" : "Ležerno"} · ${formatMatchDate(
+                <strong>${t("profile.withAgainst", {
+                  partner: escapeHtml(match.partner),
+                  opponents: escapeHtml(match.opponents.join(" & ")),
+                })}</strong>
+                <small>${match.ranked ? t("common.ranked") : t("common.casual")} · ${formatMatchDate(
             match.completedAt
           )}</small>
               </div>
@@ -346,14 +360,14 @@ function renderProfile(profile) {
                       )}</span><br><span class="${duoClass}">Duo ${formatDelta(
                         match.duoDelta
                       )}</span>`
-                    : "Bez MMR-a"
+                    : t("profile.noMmr")
                 }
               </span>
             </article>
           `;
         })
         .join("")
-    : `<p class="empty-profile-list">Vaša povijest mečeva još je prazna.</p>`;
+    : `<p class="empty-profile-list">${t("profile.noHistory")}</p>`;
 }
 
 async function openProfile() {
@@ -378,12 +392,14 @@ function applyRankedSetting() {
   elements.akuzaSetting.closest(".switch-label").classList.toggle("hidden", seres);
   elements.signalsSetting.closest(".switch-label").classList.toggle("hidden", seres);
   elements.modeDescription.textContent = seres
-    ? "Free-for-all Trešeta variant. Collect as few points as possible. The first player to reach 41 loses. You may play any suit, but if someone catches you lying with ‘Sereš’, you take 11 points and the hand ends. Akuža works too, but it subtracts points instead of adding them — and you can bluff it unless someone calls Sereš."
-    : "Klasična Trešeta za četiri igrača u dvije ekipe.";
+    ? t("mode.seresDescription")
+    : t("mode.classicDescription");
   elements.rankedNote.classList.toggle("hidden", !ranked);
   elements.rankedNote.textContent = seres
-    ? `Ranked Sereš u Manje koristi zaseban MMR i traži ${elements.playerCountSetting.value} prijavljena računa.`
-    : "Rangirana soba traži četiri prijavljena računa. Akuža je uključena, a signali isključeni.";
+    ? t("mode.seresRankedNote", {
+        players: count("player", Number(elements.playerCountSetting.value)),
+      })
+    : t("mode.classicRankedNote");
   if (ranked) {
     elements.akuzaSetting.checked = true;
     elements.signalsSetting.checked = false;
@@ -401,10 +417,11 @@ function showToast(message) {
 
 function ackError(result) {
   if (result?.ok) return false;
-  const message = result?.error || "Nešto je pošlo po zlu.";
+  const originalMessage = result?.error || "";
+  const message = translateError(originalMessage) || t("generic.somethingWrong");
   showToast(message);
   elements.lobbyError.textContent = message;
-  if (message.toLowerCase().includes("prijavljeni")) openAuth();
+  if (isAuthenticationError(originalMessage)) openAuth();
   return true;
 }
 
@@ -496,7 +513,7 @@ function cardArtStyle(card) {
 function createCard(card, mode = "hand", isPlayable = false, isMyTurn = false) {
   const button = document.createElement(mode === "hand" ? "button" : "div");
   button.className = `playing-card suit-${card.suit}`;
-  button.setAttribute("aria-label", `${card.label} ${card.suit}`);
+  button.setAttribute("aria-label", `${card.label} ${t(`suit.${card.suit}`)}`);
   button.innerHTML = `<span class="card-artwork" style="${cardArtStyle(
     card
   )}" aria-hidden="true"></span>`;
@@ -528,7 +545,9 @@ function renderSeats(state) {
     if (!player) {
       const empty = document.createElement("div");
       empty.className = "empty-seat";
-      empty.textContent = `${seatNames[seat]} · slobodno`;
+      empty.textContent = t("seat.free", {
+        seat: t(`seat.${seatKeys[seat]}`),
+      });
       container.appendChild(empty);
       return;
     }
@@ -549,13 +568,21 @@ function renderSeats(state) {
     name.textContent = player.nickname;
     const meta = document.createElement("small");
     meta.className = "seat-meta";
-    const pieces = [seatNames[seat], `${state.game.handCounts[seat] || 0} karata`];
+    const pieces = [
+      t(`seat.${seatKeys[seat]}`),
+      count("card", state.game.handCounts[seat] || 0),
+    ];
     if (isSeresMode(state)) {
-      pieces.push(`${formatThirds(state.game.playerScores[seat]?.thirds)} bodova`);
+      pieces.push(
+        count(
+          "point",
+          formatThirds(state.game.playerScores[seat]?.thirds)
+        )
+      );
     }
-    if (state.me.seat === seat) pieces.push("vi");
-    if (player.authenticated) pieces.push("račun");
-    if (!player.connected) pieces.push("odsutan");
+    if (state.me.seat === seat) pieces.push(t("seat.you"));
+    if (player.authenticated) pieces.push(t("seat.account"));
+    if (!player.connected) pieces.push(t("seat.away"));
     meta.textContent = pieces.join(" · ");
     data.append(name, meta);
     card.append(avatar, data);
@@ -564,7 +591,7 @@ function renderSeats(state) {
       const dealer = document.createElement("span");
       dealer.className = "dealer-dot";
       dealer.textContent = "D";
-      dealer.title = "Djelitelj";
+      dealer.title = t("seat.dealer");
       card.appendChild(dealer);
     }
     container.appendChild(card);
@@ -581,14 +608,14 @@ function renderTrick(state) {
   const ledSuit = plays[0]?.card.suit;
   elements.ledSuitBadge.classList.toggle("hidden", !ledSuit);
   elements.ledSuitBadge.textContent = ledSuit
-    ? `Led suit: ${suitNames[ledSuit]}`
+    ? t("game.ledSuit", { suit: t(`suit.${ledSuit}`) })
     : "";
 }
 
 function renderHand(state) {
   elements.hand.innerHTML = "";
   if (state.me.role !== "player") {
-    elements.handHint.textContent = "Gledate javni tijek partije";
+    elements.handHint.textContent = t("game.publicView");
     return;
   }
   const hand = [...state.me.hand].sort((a, b) => {
@@ -606,19 +633,22 @@ function renderHand(state) {
     const currentSeat = state.game.akuzaPhase?.currentPlayerSeat;
     const currentPlayer = state.players[currentSeat];
     elements.handHint.textContent = currentPlayer
-      ? `Akuža phase · na redu je ${currentPlayer.nickname}`
-      : "Čekaju se Continue / Sereš odgovori";
+      ? t("game.akuzaTurn", { player: currentPlayer.nickname })
+      : t("game.waitingChallenge");
   } else if (state.game.seresOpportunity) {
     const responder =
       state.players[state.game.seresOpportunity.currentResponderSeat];
     elements.handHint.textContent = responder
-      ? `${responder.nickname} odlučuje: Continue ili Sereš`
-      : "Čeka se odgovor";
-  } else if (state.game.pendingTrick) elements.handHint.textContent = "Trick se sprema…";
-  else if (myTurn) elements.handHint.textContent = "Vi ste na redu — odaberite osvijetljenu kartu";
+      ? t("game.decides", { player: responder.nickname })
+      : t("game.waitingAnswer");
+  } else if (state.game.pendingTrick) {
+    elements.handHint.textContent = t("game.trickResolving");
+  } else if (myTurn) elements.handHint.textContent = t("game.yourTurn");
   else if (state.game.status === "playing") {
     const player = state.players[state.game.turnSeat];
-    elements.handHint.textContent = player ? `Na redu je ${player.nickname}` : "";
+    elements.handHint.textContent = player
+      ? t("game.playerTurn", { player: player.nickname })
+      : "";
   } else elements.handHint.textContent = "";
 }
 
@@ -629,7 +659,9 @@ function renderSignals(state) {
     const bubble = document.createElement("div");
     bubble.className = "signal-bubble";
     const player = state.players[signal.seat];
-    bubble.textContent = `${player?.nickname || seatNames[signal.seat]}: ${signal.label}`;
+    bubble.textContent = `${
+      player?.nickname || t(`seat.${seatKeys[signal.seat]}`)
+    }: ${signalLabel(signal.type, signal.label)}`;
     elements.signalFeed.appendChild(bubble);
   });
 }
@@ -639,7 +671,7 @@ function renderAkuza(state) {
   const combos = state.me.akuza || [];
   elements.declarationBar.classList.toggle("hidden", seres || combos.length === 0);
   elements.akuzaDescription.textContent = combos
-    .map((combo) => `${combo.label} (${combo.points})`)
+    .map((combo) => `${akuzaLabel(combo)} (${combo.points})`)
     .join(" + ");
 
   const claims = state.me.akuzaClaims || [];
@@ -649,7 +681,7 @@ function renderAkuza(state) {
     elements.akuzaClaimSelect.innerHTML = claims
       .map(
         (claim) =>
-          `<option value="${escapeHtml(claim.id)}">${escapeHtml(claim.label)} (−${
+          `<option value="${escapeHtml(claim.id)}">${escapeHtml(akuzaLabel(claim))} (−${
             claim.points
           })</option>`
       )
@@ -682,10 +714,16 @@ function renderLobbyControls(state) {
   const connected = state.players.filter((player) => player?.connected).length;
   elements.lobbyStatus.textContent =
     occupied < target
-      ? `Za stolom je ${occupied}/${target} igrača. Podijelite kod ${state.code}.`
+      ? t("game.tableOccupied", {
+          occupied,
+          target,
+          code: state.code,
+        })
       : connected < target
-      ? `Stol je pun, ali čekamo povratak ${target - connected} igrača.`
-      : "Stol je pun. Domaćin može podijeliti karte.";
+      ? t("game.waitingReturn", {
+          count: count("player", target - connected),
+        })
+      : t("game.tableReady");
   elements.startButton.classList.toggle("hidden", !state.me.isHost);
   elements.startButton.disabled = occupied !== target || connected !== target;
 }
@@ -701,17 +739,19 @@ function renderScoreOverlay(state) {
   if (seres) {
     elements.scoreBreakdown.classList.add("free-for-all");
     const loser = state.players[state.game.loserSeat];
-    elements.scoreTitle.textContent = `${loser?.nickname || "Igrač"} je dosegao 41 i gubi`;
+    elements.scoreTitle.textContent = t("score.loser", {
+      player: loser?.nickname || t("game.playerFallback"),
+    });
     elements.scoreBreakdown.innerHTML = state.game.handBreakdown
       .sort((a, b) => a.rank - b.rank)
       .map(
         (score) => `
           <article class="team-breakdown ${score.lost ? "loser" : "winner"}">
             <h3>#${score.rank} ${escapeHtml(score.nickname)}</h3>
-            <div class="score-line total"><span>Ukupni bodovi</span><strong>${formatThirds(
+            <div class="score-line total"><span>${t("score.totalPoints")}</span><strong>${formatThirds(
               score.scoreThirds
             )}</strong></div>
-            <div class="match-total">${score.lost ? "GUBITNIK" : "Niže je bolje"}</div>
+            <div class="match-total">${score.lost ? t("score.loserLabel") : t("game.lowerIsBetter")}</div>
           </article>
         `
       )
@@ -720,7 +760,7 @@ function renderScoreOverlay(state) {
     elements.newMatchButton.classList.toggle("hidden", !state.me.isHost);
     elements.waitingForHost.textContent = state.me.isHost
       ? ""
-      : "Domaćin može pokrenuti novu partiju.";
+      : t("score.hostNewMatch");
     const rating = state.me.ratingChange;
     elements.ratingSummary.classList.toggle(
       "hidden",
@@ -736,8 +776,8 @@ function renderScoreOverlay(state) {
   elements.scoreBreakdown.classList.remove("free-for-all");
 
   elements.scoreTitle.textContent = matchEnded
-    ? `Ekipa ${teamNames[state.game.winnerTeam]} osvaja partiju`
-    : `Ruka ${state.game.handNumber} je završena`;
+    ? t("score.teamWins", { team: teamNames[state.game.winnerTeam] })
+    : t("score.handNumberEnded", { hand: state.game.handNumber });
   elements.scoreBreakdown.innerHTML = "";
 
   state.game.handBreakdown.forEach((score, team) => {
@@ -751,11 +791,11 @@ function renderScoreOverlay(state) {
       box.classList.add("winner");
     }
     box.innerHTML = `
-      <h3>Ekipa ${teamNames[team]}</h3>
-      <div class="score-line"><span>Karte</span><strong>${score.cardPoints} + ${score.remainderThirds}/3</strong></div>
-      <div class="score-line"><span>Zadnji štih</span><strong>+${score.lastTrickBonus}</strong></div>
-      <div class="score-line"><span>Akuža</span><strong>+${score.akuzaPoints}</strong></div>
-      <div class="score-line total"><span>Ukupno u ruci</span><strong>${score.handTotal}</strong></div>
+      <h3>${t(team === 0 ? "team.maestral" : "team.bura")}</h3>
+      <div class="score-line"><span>${t("score.cards")}</span><strong>${score.cardPoints} + ${score.remainderThirds}/3</strong></div>
+      <div class="score-line"><span>${t("score.lastTrick")}</span><strong>+${score.lastTrickBonus}</strong></div>
+      <div class="score-line"><span>${t("common.akuza")}</span><strong>+${score.akuzaPoints}</strong></div>
+      <div class="score-line total"><span>${t("score.totalInHand")}</span><strong>${score.handTotal}</strong></div>
       <div class="match-total">${score.matchBefore} → ${score.matchTotal}</div>
     `;
     elements.scoreBreakdown.appendChild(box);
@@ -772,8 +812,8 @@ function renderScoreOverlay(state) {
   elements.waitingForHost.textContent = state.me.isHost
     ? ""
     : matchEnded
-    ? "Domaćin može pokrenuti novu partiju."
-    : "Čekamo domaćina da podijeli novu ruku.";
+    ? t("score.hostNewMatch")
+    : t("score.waitingHost");
 
   const rating = state.me.ratingChange;
   elements.ratingSummary.classList.toggle(
@@ -820,7 +860,7 @@ function renderState(state) {
         }">
             <span>${escapeHtml(player.nickname)}</span>
             <strong>${formatThirds(score?.thirds)}</strong>
-            <small>niže je bolje</small>
+            <small>${t("game.lowerIsBetter")}</small>
           </article>
         `;
       })
@@ -835,24 +875,30 @@ function renderState(state) {
   const tricksPerHand = { 3: 13, 4: 10, 5: 8 }[state.settings.playerCount] || 10;
   elements.handLabel.textContent =
     state.game.status === "lobby"
-      ? "Čekaonica"
+      ? t("game.lobby")
       : state.game.status === "akuza"
-      ? `Hand ${state.game.handNumber} · akuža phase`
-      : `Hand ${state.game.handNumber} · trick ${Math.min(
-          state.game.trickNumber,
-          tricksPerHand
-        )}/${tricksPerHand}`;
-  elements.turnLabel.textContent = state.game.message;
+      ? t("game.handAkuza", { hand: state.game.handNumber })
+      : t("game.handTrick", {
+          hand: state.game.handNumber,
+          trick: Math.min(state.game.trickNumber, tricksPerHand),
+          total: tricksPerHand,
+        });
+  const localizedMessage = translateServerText(state.game.message);
+  elements.turnLabel.textContent = localizedMessage;
   elements.settingsLabel.textContent = [
-    seres ? "Trešeta Sereš u Manje" : "Classic Trešeta",
-    state.settings.ranked ? "Rangirano" : "Ležerno",
-    seres ? `${state.settings.challengeSeconds} s za odgovor` : null,
-    state.settings.akuza ? "Akuža uključena" : "Bez akuže",
-    state.settings.signals ? "Signali uključeni" : "Bez signala",
+    seres ? t("mode.seres") : t("mode.classic"),
+    state.settings.ranked ? t("common.ranked") : t("common.casual"),
+    seres
+      ? t("game.responseSeconds", {
+          seconds: state.settings.challengeSeconds,
+        })
+      : null,
+    state.settings.akuza ? t("game.akuzaOn") : t("game.akuzaOff"),
+    state.settings.signals ? t("game.signalsOn") : t("game.signalsOff"),
   ]
     .filter(Boolean)
     .join(" · ");
-  elements.tableMessage.textContent = state.game.message;
+  elements.tableMessage.textContent = localizedMessage;
   elements.spectatorBadge.classList.toggle("hidden", state.me.role !== "spectator");
 
   renderSeats(state);
@@ -958,7 +1004,9 @@ elements.authForm.addEventListener("submit", async (event) => {
     }
     socket.disconnect();
     socket.connect();
-    showToast(authMode === "login" ? "Prijavljeni ste." : "Račun je izrađen.");
+    showToast(
+      authMode === "login" ? t("account.signedIn") : t("account.created")
+    );
   } catch (error) {
     elements.authError.textContent = error.message;
   } finally {
@@ -996,9 +1044,9 @@ $("#copyInviteButton").addEventListener("click", async () => {
   url.searchParams.set("room", activeCode);
   try {
     await navigator.clipboard.writeText(url.toString());
-    showToast("Pozivnica je kopirana.");
+    showToast(t("toast.inviteCopied"));
   } catch (_error) {
-    showToast(`Kod sobe: ${activeCode}`);
+    showToast(t("toast.roomCode", { code: activeCode }));
   }
 });
 
@@ -1030,7 +1078,17 @@ socket.on("connect", () => {
     joinRoom(activeCode, activeToken);
   }
 });
-socket.on("disconnect", () => showToast("Veza je prekinuta. Pokušavam se vratiti…"));
+socket.on("disconnect", () => showToast(t("toast.disconnected")));
+
+document.addEventListener("treseta:languagechange", () => {
+  updateAccountUi();
+  setAuthMode(authMode);
+  applyRankedSetting();
+  if (currentState) renderState(currentState);
+  if (!elements.profileModal.classList.contains("hidden") && currentAccount) {
+    openProfile();
+  }
+});
 
 async function initialize() {
   try {

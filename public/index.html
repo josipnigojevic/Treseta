@@ -6,6 +6,7 @@
     <meta
       name="description"
       content="Online multiplayer Trešeta za četiri igrača."
+      data-i18n-content="meta.description"
     />
     <title>Trešeta Online</title>
     <link rel="stylesheet" href="/style.css" />
@@ -15,9 +16,17 @@
 
     <main id="lobbyView" class="lobby-shell">
       <div class="lobby-account-area">
+        <label class="language-picker">
+          <span data-i18n="language.label">Jezik</span>
+          <select class="language-select" aria-label="Jezik" data-i18n-aria-label="language.label">
+            <option value="hr">Hrvatski</option>
+            <option value="it">Italiano</option>
+            <option value="en">English</option>
+          </select>
+        </label>
         <button id="lobbyAccountButton" class="account-button">
           <span class="account-avatar">?</span>
-          <span class="account-label">Prijava / registracija</span>
+          <span class="account-label" data-i18n="account.loginRegister">Prijava / registracija</span>
         </button>
       </div>
       <section class="lobby-card">
@@ -25,9 +34,9 @@
           <div class="brand-mark" aria-hidden="true">
             <span>3</span><i></i><span>2</span>
           </div>
-          <p class="eyebrow">Adriatic card room</p>
+          <p class="eyebrow" data-i18n="brand.eyebrow">Jadranska kartaška soba</p>
           <h1>Trešeta</h1>
-          <p class="intro">
+          <p class="intro" data-i18n="brand.intro">
             Četiri stolice. Dvije ekipe. Bez aduta — samo boja, pamćenje i
             dobar partner preko stola.
           </p>
@@ -35,46 +44,47 @@
 
         <div class="lobby-form">
           <label>
-            <span>Vaš nadimak</span>
+            <span data-i18n="lobby.nickname">Vaš nadimak</span>
             <input
               id="nicknameInput"
               maxlength="22"
               autocomplete="nickname"
               placeholder="npr. Meštar"
+              data-i18n-placeholder="lobby.nicknamePlaceholder"
             />
           </label>
 
           <div class="room-actions">
             <div class="create-block">
-              <p class="form-title">Novi stol</p>
+              <p class="form-title" data-i18n="lobby.newTable">Novi stol</p>
               <label class="mode-field">
-                <span>Način igre</span>
+                <span data-i18n="lobby.gameMode">Način igre</span>
                 <select id="gameModeSetting">
-                  <option value="classic">Classic Trešeta</option>
+                  <option value="classic" data-i18n="mode.classic">Klasična Trešeta</option>
                   <option value="seres_u_manje">Trešeta Sereš u Manje</option>
                 </select>
               </label>
-              <p id="modeDescription" class="mode-description">
+              <p id="modeDescription" class="mode-description" data-i18n="mode.classicDescription">
                 Klasična Trešeta za četiri igrača u dvije ekipe.
               </p>
               <div id="seresSetup" class="seres-setup hidden">
                 <label>
-                  <span>Vrsta partije</span>
+                  <span data-i18n="lobby.matchType">Vrsta partije</span>
                   <select id="seresMatchType">
-                    <option value="casual">Non-ranked</option>
-                    <option value="ranked">Ranked</option>
+                    <option value="casual" data-i18n="common.casual">Ležerno</option>
+                    <option value="ranked" data-i18n="common.ranked">Rangirano</option>
                   </select>
                 </label>
                 <label>
-                  <span>Broj igrača</span>
+                  <span data-i18n="lobby.playerCount">Broj igrača</span>
                   <select id="playerCountSetting">
-                    <option value="3">3 igrača</option>
-                    <option value="4" selected>4 igrača</option>
-                    <option value="5">5 igrača</option>
+                    <option value="3" data-i18n="players.3">3 igrača</option>
+                    <option value="4" selected data-i18n="players.4">4 igrača</option>
+                    <option value="5" data-i18n="players.5">5 igrača</option>
                   </select>
                 </label>
                 <label class="challenge-time-field">
-                  <span>Vrijeme za Continue / Sereš</span>
+                  <span data-i18n="lobby.responseTime">Vrijeme za Nastavi / Sereš</span>
                   <div class="range-setting">
                     <input
                       id="challengeSecondsSetting"
@@ -92,34 +102,34 @@
                 <label class="switch-label ranked-switch">
                   <input id="rankedSetting" type="checkbox" />
                   <span class="switch"></span>
-                  Rangirano
+                  <span data-i18n="common.ranked">Rangirano</span>
                 </label>
                 <label class="switch-label">
                   <input id="akuzaSetting" type="checkbox" checked />
                   <span class="switch"></span>
-                  Akuža
+                  <span data-i18n="common.akuza">Akuža</span>
                 </label>
                 <label class="switch-label">
                   <input id="signalsSetting" type="checkbox" checked />
                   <span class="switch"></span>
-                  Signali
+                  <span data-i18n="common.signals">Signali</span>
                 </label>
               </div>
-              <p id="rankedNote" class="ranked-note hidden">
+              <p id="rankedNote" class="ranked-note hidden" data-i18n="mode.classicRankedNote">
                 Rangirana soba traži četiri prijavljena računa. Akuža je
                 uključena, a signali isključeni.
               </p>
               <button id="createButton" class="button primary">
-                Otvori sobu
+                <span data-i18n="lobby.createRoom">Otvori sobu</span>
               </button>
             </div>
 
-            <div class="divider"><span>ili</span></div>
+            <div class="divider"><span data-i18n="common.or">ili</span></div>
 
             <div class="join-block">
-              <p class="form-title">Pridruži se</p>
+              <p class="form-title" data-i18n="lobby.join">Pridruži se</p>
               <label>
-                <span>Kod sobe</span>
+                <span data-i18n="lobby.roomCode">Kod sobe</span>
                 <input
                   id="roomCodeInput"
                   class="code-input"
@@ -130,60 +140,67 @@
               </label>
               <label class="check-label">
                 <input id="spectateInput" type="checkbox" />
-                Pridruži se kao gledatelj
+                <span data-i18n="lobby.joinSpectator">Pridruži se kao gledatelj</span>
               </label>
               <button id="joinButton" class="button secondary">
-                Sjedni za stol
+                <span data-i18n="lobby.sitDown">Sjedni za stol</span>
               </button>
             </div>
           </div>
           <p id="lobbyError" class="form-error" role="alert"></p>
         </div>
       </section>
-      <button class="text-button rules-open">Kako se igra?</button>
+      <button class="text-button rules-open" data-i18n="rules.open">Kako se igra?</button>
     </main>
 
     <main id="gameView" class="game-shell hidden">
       <header class="topbar">
         <div class="mini-brand"><strong>3</strong> Trešeta <strong>2</strong></div>
         <div class="room-chip">
-          <span>Soba</span>
+          <span data-i18n="game.room">Soba</span>
           <strong id="roomCodeLabel">—</strong>
-          <button id="copyInviteButton" title="Kopiraj pozivnicu">Kopiraj</button>
+          <button id="copyInviteButton" title="Kopiraj pozivnicu" data-i18n="game.copy" data-i18n-title="game.copyInvite">Kopiraj</button>
         </div>
         <div class="top-actions">
-          <span id="spectatorBadge" class="spectator-badge hidden">Gledatelj</span>
+          <span id="spectatorBadge" class="spectator-badge hidden" data-i18n="common.spectator">Gledatelj</span>
           <button id="gameAccountButton" class="game-account-button">
             <span class="account-avatar">?</span>
-            <span class="account-label">Prijava</span>
+            <span class="account-label" data-i18n="account.login">Prijava</span>
           </button>
-          <button class="icon-button rules-open" aria-label="Pravila">?</button>
-          <button id="leaveButton" class="text-button">Izađi</button>
+          <label class="language-picker compact">
+            <select class="language-select" aria-label="Jezik" data-i18n-aria-label="language.label">
+              <option value="hr">HR</option>
+              <option value="it">IT</option>
+              <option value="en">EN</option>
+            </select>
+          </label>
+          <button class="icon-button rules-open" aria-label="Pravila" data-i18n-aria-label="rules.title">?</button>
+          <button id="leaveButton" class="text-button" data-i18n="game.leave">Izađi</button>
         </div>
       </header>
 
-      <section class="score-strip" aria-label="Rezultat">
+      <section class="score-strip" aria-label="Rezultat" data-i18n-aria-label="game.score">
         <div id="classicTeam0" class="team-score team-a">
           <div>
-            <span>Ekipa Maestral</span>
-            <small>Sjever + Jug</small>
+            <span data-i18n="team.maestral">Ekipa Maestral</span>
+            <small data-i18n="team.northSouth">Sjever + Jug</small>
           </div>
           <strong id="team0Score">0</strong>
         </div>
         <div class="round-status">
-          <span id="handLabel">Čekaonica</span>
-          <strong id="turnLabel">Čekamo igrače</strong>
+          <span id="handLabel" data-i18n="game.lobby">Čekaonica</span>
+          <strong id="turnLabel" data-i18n="game.waitingPlayers">Čekamo igrače</strong>
           <small id="settingsLabel"></small>
         </div>
         <div id="classicTeam1" class="team-score team-b">
           <strong id="team1Score">0</strong>
           <div>
-            <span>Ekipa Bura</span>
-            <small>Istok + Zapad</small>
+            <span data-i18n="team.bura">Ekipa Bura</span>
+            <small data-i18n="team.eastWest">Istok + Zapad</small>
           </div>
         </div>
       </section>
-      <section id="playerScoreBoard" class="player-score-board hidden" aria-label="Pojedinačni rezultat"></section>
+      <section id="playerScoreBoard" class="player-score-board hidden" aria-label="Pojedinačni rezultat" data-i18n-aria-label="game.individualScore"></section>
 
       <section class="table-stage">
         <div class="table-halo" aria-hidden="true"></div>
@@ -194,14 +211,14 @@
           <div id="seat3" class="seat seat-west"></div>
           <div id="seat4" class="seat seat-anchor"></div>
 
-          <div class="captured-pile pile-a" title="Uzeti štihovi ekipe Maestral">
+          <div class="captured-pile pile-a" title="Uzeti štihovi ekipe Maestral" data-i18n-title="game.capturedMaestral">
             <i></i><span id="captured0">0</span>
           </div>
-          <div class="captured-pile pile-b" title="Uzeti štihovi ekipe Bura">
+          <div class="captured-pile pile-b" title="Uzeti štihovi ekipe Bura" data-i18n-title="game.capturedBura">
             <i></i><span id="captured1">0</span>
           </div>
 
-          <div id="trickArea" class="trick-area" aria-label="Trenutni štih">
+          <div id="trickArea" class="trick-area" aria-label="Trenutni štih" data-i18n-aria-label="game.currentTrick">
             <div class="trick-slot trick-north" data-trick-seat="0"></div>
             <div class="trick-slot trick-east" data-trick-seat="1"></div>
             <div class="trick-slot trick-south" data-trick-seat="2"></div>
@@ -213,71 +230,71 @@
           </div>
 
           <div id="ledSuitBadge" class="led-suit-badge hidden"></div>
-          <div id="tableMessage" class="table-message">Dobro došli za stol.</div>
+          <div id="tableMessage" class="table-message" data-i18n="game.welcome">Dobro došli za stol.</div>
           <div id="signalFeed" class="signal-feed"></div>
         </div>
       </section>
 
       <section class="play-zone">
         <div id="lobbyControls" class="lobby-controls hidden">
-          <p id="lobbyStatus">Čekamo još igrača…</p>
-          <button id="startButton" class="button primary">Započni partiju</button>
+          <p id="lobbyStatus" data-i18n="game.waitingMore">Čekamo još igrača…</p>
+          <button id="startButton" class="button primary" data-i18n="game.start">Započni partiju</button>
         </div>
 
         <div id="declarationBar" class="declaration-bar hidden">
           <div>
-            <span>Akuža u ruci</span>
+            <span data-i18n="game.akuzaInHand">Akuža u ruci</span>
             <strong id="akuzaDescription"></strong>
           </div>
-          <button id="declareButton" class="button gold">Prijavi akužu</button>
+          <button id="declareButton" class="button gold" data-i18n="game.declareAkuza">Prijavi akužu</button>
         </div>
 
         <div id="seresAkuzaTurnBar" class="declaration-bar seres-action-bar hidden">
           <div>
-            <span>Vaš akuža turn</span>
-            <strong>Možete prijaviti stvarnu akužu ili blefirati.</strong>
+            <span data-i18n="game.yourAkuzaTurn">Vi ste na redu za akužu</span>
+            <strong data-i18n="game.akuzaBluff">Možete prijaviti stvarnu akužu ili blefirati.</strong>
           </div>
           <select id="akuzaClaimSelect"></select>
-          <button id="seresDeclareButton" class="button gold">Prijavi akužu</button>
-          <button id="passAkuzaButton" class="button gold">Continue / Pass</button>
+          <button id="seresDeclareButton" class="button gold" data-i18n="game.declareAkuza">Prijavi akužu</button>
+          <button id="passAkuzaButton" class="button gold" data-i18n="game.pass">Nastavi / Preskoči</button>
         </div>
 
         <div id="akuzaResponseBar" class="declaration-bar seres-action-bar hidden">
           <div>
-            <span>Otvorena akuža</span>
+            <span data-i18n="game.openAkuza">Otvorena akuža</span>
             <strong id="pendingAkuzaDescription"></strong>
           </div>
-          <button id="continueAkuzaButton" class="button gold">Continue</button>
+          <button id="continueAkuzaButton" class="button gold" data-i18n="common.continue">Nastavi</button>
           <button id="seresAkuzaButton" class="button danger">Sereš</button>
         </div>
 
         <div id="seresTrickBar" class="seres-trick-bar hidden">
           <span id="seresTrickDescription"></span>
-          <button id="continueSeresButton" class="button gold">Continue</button>
+          <button id="continueSeresButton" class="button gold" data-i18n="common.continue">Nastavi</button>
           <button id="seresTrickButton" class="button danger">Sereš</button>
         </div>
 
         <div id="signalControls" class="signal-controls hidden">
-          <span>Signal prije izlaza</span>
-          <button data-signal="busso">Tučem / Busso</button>
-          <button data-signal="striscio">Strišo</button>
-          <button data-signal="volo">Volo</button>
+          <span data-i18n="game.signalBeforeLead">Signal prije izlaza</span>
+          <button data-signal="busso" data-i18n="signal.busso">Tučem / Busso</button>
+          <button data-signal="striscio" data-i18n="signal.striscio">Strišo / Striscio</button>
+          <button data-signal="volo" data-i18n="signal.volo">Volo</button>
         </div>
 
         <div id="handHint" class="hand-hint"></div>
-        <div id="playerHand" class="player-hand" aria-label="Vaše karte"></div>
+        <div id="playerHand" class="player-hand" aria-label="Vaše karte" data-i18n-aria-label="game.yourCards"></div>
       </section>
     </main>
 
     <div id="scoreOverlay" class="modal-backdrop hidden" role="dialog" aria-modal="true">
       <section class="score-modal">
-        <p class="eyebrow">Obračun ruke</p>
-        <h2 id="scoreTitle">Ruka završena</h2>
+        <p class="eyebrow" data-i18n="score.handSummary">Obračun ruke</p>
+        <h2 id="scoreTitle" data-i18n="score.handEnded">Ruka završena</h2>
         <div id="scoreBreakdown" class="score-breakdown"></div>
         <div id="ratingSummary" class="rating-summary hidden"></div>
         <div class="modal-actions">
-          <button id="nextHandButton" class="button primary hidden">Podijeli novu ruku</button>
-          <button id="newMatchButton" class="button primary hidden">Nova partija</button>
+          <button id="nextHandButton" class="button primary hidden" data-i18n="score.nextHand">Podijeli novu ruku</button>
+          <button id="newMatchButton" class="button primary hidden" data-i18n="score.newMatch">Nova partija</button>
           <p id="waitingForHost" class="waiting-note"></p>
         </div>
       </section>
@@ -285,56 +302,58 @@
 
     <div id="authModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
       <section class="auth-modal">
-        <button id="closeAuthButton" class="modal-close" aria-label="Zatvori">×</button>
-        <p class="eyebrow">Vaš račun</p>
-        <h2 id="authTitle">Prijava</h2>
+        <button id="closeAuthButton" class="modal-close" aria-label="Zatvori" data-i18n-aria-label="common.close">×</button>
+        <p class="eyebrow" data-i18n="account.yourAccount">Vaš račun</p>
+        <h2 id="authTitle" data-i18n="account.login">Prijava</h2>
         <div class="auth-tabs">
-          <button data-auth-mode="login" class="active">Prijava</button>
-          <button data-auth-mode="register">Novi račun</button>
+          <button data-auth-mode="login" class="active" data-i18n="account.login">Prijava</button>
+          <button data-auth-mode="register" data-i18n="account.newAccount">Novi račun</button>
         </div>
         <form id="authForm">
           <label>
-            <span>Korisničko ime</span>
+            <span data-i18n="account.username">Korisničko ime</span>
             <input
               id="authUsername"
               maxlength="20"
               autocomplete="username"
               placeholder="npr. Meštar"
+              data-i18n-placeholder="lobby.nicknamePlaceholder"
               required
             />
           </label>
           <label>
-            <span>Lozinka</span>
+            <span data-i18n="account.password">Lozinka</span>
             <input
               id="authPassword"
               type="password"
               maxlength="128"
               autocomplete="current-password"
               placeholder="Najmanje 8 znakova"
+              data-i18n-placeholder="account.passwordPlaceholder"
               required
             />
           </label>
           <button id="authSubmitButton" class="button primary" type="submit">
-            Prijavi se
+            <span data-i18n="account.signIn">Prijavi se</span>
           </button>
           <p id="authError" class="form-error" role="alert"></p>
         </form>
-        <p class="auth-footnote">
-          Rangirane partije i povijest mečeva vežu se uz ovaj račun.
+        <p class="auth-footnote" data-i18n="account.footnote">
+          Rangirane partije i povijest partija vežu se uz ovaj račun.
         </p>
       </section>
     </div>
 
     <div id="profileModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
       <section class="profile-modal">
-        <button id="closeProfileButton" class="modal-close" aria-label="Zatvori">×</button>
+        <button id="closeProfileButton" class="modal-close" aria-label="Zatvori" data-i18n-aria-label="common.close">×</button>
         <div class="profile-heading">
           <span id="profileAvatar" class="profile-avatar">M</span>
           <div>
-            <p class="eyebrow">Igrački profil</p>
+            <p class="eyebrow" data-i18n="profile.playerProfile">Igrački profil</p>
             <h2 id="profileUsername">Meštar</h2>
           </div>
-          <button id="logoutButton" class="profile-logout">Odjava</button>
+          <button id="logoutButton" class="profile-logout" data-i18n="account.logout">Odjava</button>
         </div>
 
         <div id="profileStats" class="profile-stats"></div>
@@ -342,10 +361,10 @@
         <section class="profile-section">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Privatno za partnerstvo</p>
+              <p class="eyebrow" data-i18n="profile.privatePartnership">Privatno za partnerstvo</p>
               <h3>Duo MMR</h3>
             </div>
-            <small>Svaki partner ima zaseban zajednički rating</small>
+            <small data-i18n="profile.duoExplanation">Svaki partner ima zaseban zajednički rejting</small>
           </div>
           <div id="duoList" class="duo-list"></div>
         </section>
@@ -353,8 +372,8 @@
         <section class="profile-section">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Posljednjih 50</p>
-              <h3>Povijest mečeva</h3>
+              <p class="eyebrow" data-i18n="profile.last50">Posljednjih 50</p>
+              <h3 data-i18n="profile.matchHistory">Povijest partija</h3>
             </div>
           </div>
           <div id="matchHistory" class="match-history"></div>
@@ -364,41 +383,41 @@
 
     <div id="rulesModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
       <section class="rules-modal">
-        <button id="closeRulesButton" class="modal-close" aria-label="Zatvori">×</button>
-        <p class="eyebrow">Brzi vodič</p>
-        <h2>Kako se igra Trešeta</h2>
+        <button id="closeRulesButton" class="modal-close" aria-label="Zatvori" data-i18n-aria-label="common.close">×</button>
+        <p class="eyebrow" data-i18n="rules.quickGuide">Brzi vodič</p>
+        <h2 data-i18n="rules.heading">Kako se igra Trešeta</h2>
         <div class="rules-grid">
           <article>
-            <strong>1. Cilj</strong>
-            <p>Partneri sjede nasuprot. Prva ekipa koja dosegne 41 bod osvaja partiju.</p>
+            <strong data-i18n="rules.goalTitle">1. Cilj</strong>
+            <p data-i18n="rules.goal">Partneri sjede nasuprot. Prva ekipa koja dosegne 41 bod osvaja partiju.</p>
           </article>
           <article>
-            <strong>2. Jačina karata</strong>
-            <p><b>3, 2, As, Re, Cavallo, Fante, 7, 6, 5, 4.</b> Nema aduta.</p>
+            <strong data-i18n="rules.cardsTitle">2. Jačina karata</strong>
+            <p data-i18n-html="rules.cards"><b>3, 2, As, Re, Cavallo, Fante, 7, 6, 5, 4.</b> Nema aduta.</p>
           </article>
           <article>
-            <strong>3. Praćenje boje</strong>
-            <p>Morate pratiti prvu odigranu boju ako je imate. Inače smijete igrati bilo što.</p>
+            <strong data-i18n="rules.followTitle">3. Praćenje boje</strong>
+            <p data-i18n="rules.follow">Morate pratiti boju prve odigrane karte ako je imate. Inače smijete odigrati bilo koju kartu.</p>
           </article>
           <article>
-            <strong>4. Bodovi</strong>
-            <p>As vrijedi 1; trica, dvojka i figure vrijede po ⅓. Zadnji štih donosi još 1 bod.</p>
+            <strong data-i18n="rules.pointsTitle">4. Bodovi</strong>
+            <p data-i18n="rules.points">As vrijedi 1 bod; trica, dvojka i figure vrijede po ⅓ boda. Posljednji štih donosi još 1 bod.</p>
           </article>
           <article>
-            <strong>5. Akuža</strong>
-            <p>Prije svoje prve karte prijavite tri ili četiri Asa/2/3, ili A–2–3 iste boje.</p>
+            <strong data-i18n="rules.akuzaTitle">5. Akuža</strong>
+            <p data-i18n="rules.akuza">Prije nego što odigrate prvu kartu možete prijaviti tri ili četiri asa, dvojke ili trice, odnosno A–2–3 iste boje.</p>
           </article>
           <article>
-            <strong>6. Signali</strong>
-            <p>Ako su uključeni, Busso, Strišo i Volo dostupni su samo prije izlazne karte.</p>
+            <strong data-i18n="rules.signalsTitle">6. Signali</strong>
+            <p data-i18n="rules.signals">Ako su uključeni, Busso, Striscio i Volo dostupni su samo prije prve karte u štihu.</p>
           </article>
           <article class="seres-rule">
             <strong>Trešeta Sereš u Manje</strong>
-            <p>Free-for-all za 3–5 igrača. Skupljajte što manje bodova; prvi igrač koji dosegne 41 gubi.</p>
+            <p data-i18n="rules.seres">Varijanta za 3–5 igrača u kojoj svatko igra za sebe. Cilj je skupiti što manje bodova; prvi igrač koji dosegne 41 bod gubi.</p>
           </article>
           <article class="seres-rule">
-            <strong>Sereš i akuža</strong>
-            <p>Smijete igrati bilo koju boju i blefirati akužu. Točan Sereš kažnjava lažljivca s 11 bodova; pogrešan kažnjava pozivatelja. U oba slučaja cijela hand odmah završava.</p>
+            <strong data-i18n="rules.seresAkuzaTitle">Sereš i akuža</strong>
+            <p data-i18n="rules.seresAkuza">Smijete odigrati bilo koju boju i blefirati pri prijavi akuže. Ispravan poziv Sereša donosi 11 kaznenih bodova igraču koji je blefirao, a pogrešan poziv igraču koji je pozvao Sereš. U oba slučaja ruka odmah završava.</p>
           </article>
         </div>
       </section>
@@ -407,6 +426,7 @@
     <div id="toast" class="toast" role="status"></div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/i18n.js"></script>
     <script src="/client.js"></script>
   </body>
 </html>

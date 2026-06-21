@@ -20,7 +20,7 @@ const {
   normalizeChallengeSeconds,
 } = require("./rules/modes");
 
-const SEAT_NAMES = ["North", "East", "South", "West", "Anchor"];
+const SEAT_NAMES = ["Sjever", "Istok", "Jug", "Zapad", "Sidro"];
 const RESERVATION_MS = 90_000;
 const ROOM_IDLE_MS = 30 * 60_000;
 const SERES_PENALTY_THIRDS = 11 * 3;
@@ -268,10 +268,10 @@ class Room {
     this.requireHost(token);
     const count = this.settings.playerCount;
     if (this.players.some((player) => !player)) {
-      throw new Error(`Potrebno je ${count} igrača.`);
+      throw new Error(`Za početak su potrebna ${count} igrača.`);
     }
     if (this.connectedCount() !== count) {
-      throw new Error(`Svih ${count} igrača mora biti spojeno.`);
+      throw new Error("Svi igrači moraju biti povezani.");
     }
     if (
       this.settings.ranked &&
@@ -279,7 +279,7 @@ class Room {
         new Set(this.players.map((player) => player.accountId)).size !== count)
     ) {
       throw new Error(
-        `Rangirana partija zahtijeva ${count} različitih prijavljenih računa.`
+        "Svi igrači u rangiranoj partiji moraju imati različite prijavljene račune."
       );
     }
     this.game = this.emptyGame();
@@ -346,7 +346,7 @@ class Room {
     } else {
       this.game.hands = deal(deck);
       this.game.status = "playing";
-      this.game.message = `${SEAT_NAMES[this.game.leaderSeat]} otvara ruku.`;
+      this.game.message = `${this.players[this.game.leaderSeat].nickname} otvara ruku.`;
     }
     this.touch();
   }
@@ -393,7 +393,7 @@ class Room {
     const phase = this.game.akuzaPhase;
     if (!phase?.active) throw new Error("Faza akuže nije u tijeku.");
     if (phase.pendingDeclaration) {
-      throw new Error("Čeka se Continue ili Sereš za trenutnu akužu.");
+      throw new Error("Čeka se Nastavi ili Sereš za trenutnu akužu.");
     }
     if (phase.currentPlayerSeat !== player.seat) {
       throw new Error("Niste na redu za akužu.");
@@ -465,7 +465,7 @@ class Room {
       points: claim.points,
       accepted: false,
     });
-    this.game.message = `${player.nickname} declared akuža. Waiting for players to Continue or call Sereš.`;
+    this.game.message = `${player.nickname} prijavljuje akužu. Čekaju se odgovori: Nastavi ili Sereš.`;
     this.touch();
     return { player, claim, points: claim.points };
   }
@@ -486,7 +486,7 @@ class Room {
       phase.currentPlayerSeat = null;
       this.game.status = "playing";
       this.game.turnSeat = this.game.leaderSeat;
-      this.game.message = `${this.players[this.game.leaderSeat].nickname} otvara prvi trick.`;
+      this.game.message = `${this.players[this.game.leaderSeat].nickname} otvara prvi štih.`;
       return;
     }
     phase.currentPlayerSeat = phase.turnOrder[phase.currentIndex];
@@ -529,12 +529,12 @@ class Room {
             !item.accepted
         );
       if (declaration) declaration.accepted = true;
-      const acceptedMessage = `${declarer.nickname}’s akuža was accepted and subtracts ${pending.points} points.`;
+      const acceptedMessage = `Akuža igrača ${declarer.nickname} prihvaćena je i oduzima ${pending.points} boda.`;
       this.advanceAkuzaTurn();
       this.game.message = `${acceptedMessage} ${this.game.message}`;
     } else {
       const nextResponder = this.players[pending.currentResponderSeat];
-      this.game.message = `Waiting for ${nextResponder.nickname} to Continue or call Sereš.`;
+      this.game.message = `Čeka se da ${nextResponder.nickname} odabere Nastavi ili Sereš.`;
     }
     this.touch();
     return { action: "continue", allContinued };
@@ -575,7 +575,7 @@ class Room {
 
   playCard(token, cardId) {
     if (this.game.status !== "playing") throw new Error("Ruka nije u tijeku.");
-    if (this.game.pendingTrick) throw new Error("Pričekajte da se trick spremi.");
+    if (this.game.pendingTrick) throw new Error("Pričekajte završetak štiha.");
     const player = this.requirePlayer(token);
     if (player.seat !== this.game.turnSeat) throw new Error("Niste na redu.");
 
@@ -608,7 +608,7 @@ class Room {
       const responder = this.players[
         this.game.seresOpportunity.currentResponderSeat
       ];
-      this.game.message = `${player.nickname} igra drugu boju. ${responder.nickname} odlučuje: Continue ili Sereš.`;
+      this.game.message = `${player.nickname} igra drugu boju. ${responder.nickname} odlučuje: Nastavi ili Sereš.`;
       this.touch();
       return { complete: false, challengeStarted: true, player, card };
     }
@@ -632,7 +632,7 @@ class Room {
     };
     this.game.turnSeat = null;
     this.game.lastTrickWinnerSeat = winner.seat;
-    this.game.message = `${this.players[winner.seat].nickname} uzima trick.`;
+    this.game.message = `${this.players[winner.seat].nickname} uzima štih.`;
     return { complete: true, player, card, winnerSeat: winner.seat };
   }
 
@@ -662,7 +662,7 @@ class Room {
     const allContinued = this.advanceResponseWindow(opportunity);
     if (!allContinued) {
       const nextResponder = this.players[opportunity.currentResponderSeat];
-      this.game.message = `${nextResponder.nickname} odlučuje: Continue ili Sereš.`;
+      this.game.message = `${nextResponder.nickname} odlučuje: Nastavi ili Sereš.`;
       this.touch();
       return { action: "continue", allContinued: false, complete: false };
     }
@@ -746,11 +746,11 @@ class Room {
     const resolution =
       context === "akuza"
         ? accusedWasLying
-          ? `${caller.nickname} called Sereš on ${accused.nickname}’s akuža! ${accused.nickname} did not have that akuža and gains 11 points. The hand is over.`
-          : `${caller.nickname} called Sereš on ${accused.nickname}’s akuža! ${caller.nickname} was wrong and gains 11 points. The hand is over.`
+          ? `${caller.nickname} zove Sereš na akužu igrača ${accused.nickname}! ${accused.nickname} nije imao tu akužu i dobiva 11 bodova. Ruka je završena.`
+          : `${caller.nickname} zove Sereš na akužu igrača ${accused.nickname}! Poziv nije bio točan pa ${caller.nickname} dobiva 11 bodova. Ruka je završena.`
         : accusedWasLying
-        ? `${caller.nickname} called Sereš on ${accused.nickname}! ${accused.nickname} had the led suit and gains 11 points. The hand is over.`
-        : `${caller.nickname} called Sereš on ${accused.nickname}! ${caller.nickname} was wrong and gains 11 points. The hand is over.`;
+        ? `${caller.nickname} zove Sereš na igrača ${accused.nickname}! ${accused.nickname} imao je traženu boju i dobiva 11 bodova. Ruka je završena.`
+        : `${caller.nickname} zove Sereš na igrača ${accused.nickname}! Poziv nije bio točan pa ${caller.nickname} dobiva 11 bodova. Ruka je završena.`;
 
     const result = {
       type: "seres",
@@ -833,7 +833,7 @@ class Room {
 
     this.game.trickNumber += 1;
     this.game.turnSeat = pending.winnerSeat;
-    this.game.message = `${this.players[pending.winnerSeat].nickname} izlazi u novi trick.`;
+    this.game.message = `${this.players[pending.winnerSeat].nickname} otvara novi štih.`;
     return { handFinished: false };
   }
 
@@ -851,7 +851,7 @@ class Room {
     this.game.leaderSeat = winnerSeat;
 
     if (this.game.playerScoresThirds[winnerSeat] >= MATCH_LIMIT_THIRDS) {
-      const message = `${this.players[winnerSeat].nickname} reached 41 from trick points.`;
+      const message = `${this.players[winnerSeat].nickname} dosegao je 41 bod bodovima iz štiha.`;
       this.game.lastHandResult = {
         type: "match_limit",
         handNumber: this.game.handNumber,
@@ -870,7 +870,7 @@ class Room {
     }
 
     if (handFinished) {
-      const message = `Hand ${this.game.handNumber} ended normally. Points were counted.`;
+      const message = `Ruka ${this.game.handNumber} završila je uobičajeno. Bodovi su obračunani.`;
       const result = {
         type: "normal",
         handNumber: this.game.handNumber,
@@ -891,14 +891,14 @@ class Room {
         this.finishSeresMatch(loserSeat, message);
       } else {
         this.game.hands = Array.from({ length: this.settings.playerCount }, () => []);
-        this.dealNextHandInternal(false, `${message} No player reached 41.`);
+        this.dealNextHandInternal(false, `${message} Nitko nije dosegao 41 bod.`);
       }
       return { handFinished: true, autoDealt: loserSeat === -1, result };
     }
 
     this.game.trickNumber += 1;
     this.game.turnSeat = winnerSeat;
-    this.game.message = `${this.players[winnerSeat].nickname} izlazi u novi trick.`;
+    this.game.message = `${this.players[winnerSeat].nickname} otvara novi štih.`;
     return {
       handFinished: false,
       winnerSeat,
@@ -935,7 +935,7 @@ class Room {
       score: entry.score,
       lost: entry.seat === loserSeat,
     }));
-    this.game.message = `${prefix} ${this.players[loserSeat].nickname} reached 41 and loses the match.`.trim();
+    this.game.message = `${prefix} ${this.players[loserSeat].nickname} dosegao je 41 bod i gubi partiju.`.trim();
   }
 
   newMatch(token) {
