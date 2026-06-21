@@ -489,13 +489,51 @@ select {
   background: transparent;
 }
 
-.lobby-shell > .text-button {
+.lobby-rules-bubble {
   position: fixed;
-  bottom: 24px;
-  color: #adc0b8;
+  left: 20px;
+  bottom: 20px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 7px;
+  color: #d7e2dd;
+  border: 1px solid rgba(237, 220, 184, 0.2);
+  border-radius: 999px;
+  background: rgba(5, 24, 18, 0.82);
+  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(12px);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: border-color 0.2s, color 0.2s, transform 0.2s;
+}
+
+.lobby-rules-bubble::before {
+  content: "?";
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #26352f;
+  border-radius: 50%;
+  background: var(--gold-light);
+  font-family: Georgia, serif;
   font-size: 13px;
-  text-decoration: underline;
-  text-underline-offset: 4px;
+  font-weight: 700;
+}
+
+.lobby-rules-bubble:hover {
+  color: white;
+  border-color: rgba(242, 213, 141, 0.5);
+  transform: translateY(-2px);
+}
+
+.lobby-rules-bubble:focus-visible {
+  outline: 3px solid rgba(242, 213, 141, 0.32);
+  outline-offset: 3px;
 }
 
 .game-shell {
@@ -1727,12 +1765,13 @@ button.playing-card {
     display: none;
   }
 
-  .lobby-account-area .language-picker > span {
-    display: none;
-  }
-
   .lobby-account-area .language-select {
     min-width: 76px;
+  }
+
+  .lobby-rules-bubble {
+    left: 12px;
+    bottom: 12px;
   }
 
   .lobby-card {

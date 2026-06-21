@@ -17,7 +17,6 @@
     <main id="lobbyView" class="lobby-shell">
       <div class="lobby-account-area">
         <label class="language-picker">
-          <span data-i18n="language.label">Jezik</span>
           <select class="language-select" aria-label="Jezik" data-i18n-aria-label="language.label">
             <option value="hr">Hrvatski</option>
             <option value="it">Italiano</option>
@@ -150,7 +149,9 @@
           <p id="lobbyError" class="form-error" role="alert"></p>
         </div>
       </section>
-      <button class="text-button rules-open" data-i18n="rules.open">Kako se igra?</button>
+      <button class="text-button rules-open lobby-rules-bubble" data-i18n="rules.open">
+        Kako se igra?
+      </button>
     </main>
 
     <main id="gameView" class="game-shell hidden">
