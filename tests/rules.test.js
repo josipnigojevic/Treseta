@@ -12,6 +12,7 @@ const {
   trickWinner,
   scoreHand,
   detectAkuza,
+  akuzaClaimsValue,
   handHasAkuzaClaim,
   maxAkuzaValue,
   validAkuzaTotals,
@@ -383,6 +384,25 @@ test("Sereš specific akuža can combine multiple claims into -6", () => {
   assert.strictEqual(room.game.playerScoresThirds[declarerSeat], -18);
 });
 
+test("Sereš specific akuža dynamically sums totals beyond -3/-6/-9", () => {
+  assert.ok(validAkuzaTotals().includes(8));
+  assert.ok(validAkuzaTotals().includes(12));
+  assert.strictEqual(akuzaClaimsValue(["rank-ace-4", "rank-2-4"]), 8);
+  assert.strictEqual(
+    akuzaClaimsValue(["rank-ace-4", "rank-2-4", "rank-3-4"]),
+    12
+  );
+
+  const { room, tokens } = makeSeresRoom(3, false, {
+    akuzaDeclarationMode: "specific",
+  });
+  const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.declareAkuza(tokens[declarerSeat], {
+    claimIds: ["rank-ace-4", "rank-2-4"],
+  });
+  assert.strictEqual(room.game.akuzaPhase.pendingDeclaration.points, 8);
+});
+
 test("Sereš value-only akuža stores only the value and validates hand coverage", () => {
   const { room, tokens } = makeSeresRoom(3, false, {
     akuzaDeclarationMode: "value_only",
@@ -407,6 +427,33 @@ test("Sereš value-only akuža stores only the value and validates hand coverage
   assert.strictEqual(room.game.lastHandResult.accusedWasLying, false);
 });
 
+test("Sereš value-only akuža accepts dynamic -12 when the hand can cover it", () => {
+  const { room, tokens } = makeSeresRoom(3, false, {
+    akuzaDeclarationMode: "value_only",
+  });
+  const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.game.hands[declarerSeat] = [
+    card("coins", "ace"),
+    card("cups", "ace"),
+    card("swords", "ace"),
+    card("clubs", "ace"),
+    card("coins", "2"),
+    card("cups", "2"),
+    card("swords", "2"),
+    card("clubs", "2"),
+    card("coins", "3"),
+    card("cups", "3"),
+    card("swords", "3"),
+    card("clubs", "3"),
+  ];
+  assert.strictEqual(maxAkuzaValue(room.game.hands[declarerSeat]), 24);
+  room.declareAkuza(tokens[declarerSeat], { value: 12 });
+  const callerSeat = (declarerSeat + 1) % 3;
+  room.callSeres(tokens[callerSeat], "akuza");
+  assert.strictEqual(room.game.lastHandResult.accusedWasLying, false);
+  assert.strictEqual(room.game.playerScoresThirds[callerSeat], 33);
+});
+
 test("Sereš value-only akuža accepts -9 as a bluff and punishes it when challenged", () => {
   const { room, tokens } = makeSeresRoom(3, false, {
     akuzaDeclarationMode: "value_only",
@@ -419,6 +466,65 @@ test("Sereš value-only akuža accepts -9 as a bluff and punishes it when challe
   room.callSeres(tokens[callerSeat], "akuza");
   assert.strictEqual(room.game.playerScoresThirds[declarerSeat], 33);
   assert.strictEqual(room.game.lastHandResult.accusedWasLying, true);
+});
+
+function callFakeAkuzaWithPositiveHandPoints(positiveThirds, scoreThirds = positiveThirds) {
+  const { room, tokens } = makeSeresRoom(3);
+  const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.game.hands[declarerSeat] = [card("cups", "4"), card("coins", "5")];
+  room.game.currentHandPositiveThirds[declarerSeat] = positiveThirds;
+  room.game.playerScoresThirds[declarerSeat] = scoreThirds;
+  room.game.handStartScoresThirds = [...room.game.playerScoresThirds];
+  room.declareAkuza(tokens[declarerSeat], "rank-ace-3");
+  const callerSeat = (declarerSeat + 1) % 3;
+  room.callSeres(tokens[callerSeat], "akuza");
+  return { room, declarerSeat };
+}
+
+test("Sereš penalty tops a 0-point hand up to 11", () => {
+  const { room, declarerSeat } = callFakeAkuzaWithPositiveHandPoints(0);
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], 33);
+  assert.strictEqual(room.game.lastHandResult.penaltyThirds, 33);
+});
+
+test("Sereš penalty tops a 3-point hand up to 11", () => {
+  const { room, declarerSeat } = callFakeAkuzaWithPositiveHandPoints(9);
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], 33);
+  assert.strictEqual(room.game.lastHandResult.penaltyThirds, 24);
+});
+
+test("Sereš penalty tops a 10-point hand up to 11", () => {
+  const { room, declarerSeat } = callFakeAkuzaWithPositiveHandPoints(30);
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], 33);
+  assert.strictEqual(room.game.lastHandResult.penaltyThirds, 3);
+});
+
+test("Sereš cap ignores akuža deductions when calculating positive hand points", () => {
+  const { room, declarerSeat } = callFakeAkuzaWithPositiveHandPoints(0, -9);
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], 24);
+  assert.strictEqual(room.game.lastHandResult.penaltyThirds, 33);
+});
+
+test("Sereš penalty uses only the punished player's current hand points", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  passWholeAkuzaPhase(room, tokens);
+  room.game.currentHandPositiveThirds = [9, 0, 0];
+  room.game.playerScoresThirds = [9, 0, 0];
+  room.game.handStartScoresThirds = [0, 0, 0];
+  room.game.turnSeat = 0;
+  room.game.leaderSeat = 0;
+  room.game.trick = [];
+  room.game.pendingTrick = null;
+  room.game.hands[0] = [card("cups", "4")];
+  room.game.hands[1] = [card("coins", "5"), card("cups", "ace")];
+
+  room.playCard(tokens[0], "cups-4");
+  room.playCard(tokens[1], "coins-5");
+  room.callSeres(tokens[2], "trick_play");
+
+  assert.strictEqual(room.game.lastHandResult.punishedSeat, 1);
+  assert.strictEqual(room.game.lastHandResult.penaltyThirds, 33);
+  assert.deepStrictEqual(room.game.playerScoresThirds, [0, 33, 0]);
 });
 
 test("correct Sereš on a fake akuža punishes the bluffer and starts a new hand", () => {
@@ -579,6 +685,62 @@ test("a normal hand awards trick points, preserves akuža deductions, and auto-d
   assert.strictEqual(room.game.playerScoresThirds[declarerSeat] >= -9, true);
 });
 
+function prepareKaputFinalTrick(room, tokens, scoreBeforeHand = [0, 0, 0]) {
+  passWholeAkuzaPhase(room, tokens);
+  room.game.playerScoresThirds = [...scoreBeforeHand];
+  room.game.handStartScoresThirds = [...scoreBeforeHand];
+  room.game.currentHandPositiveThirds = [27, 0, 0];
+  room.game.playerScoresThirds[0] += 27;
+  room.game.turnSeat = 0;
+  room.game.leaderSeat = 0;
+  room.game.trick = [];
+  room.game.pendingTrick = null;
+  room.game.hands = [
+    [card("cups", "ace")],
+    [card("cups", "4")],
+    [card("cups", "5")],
+  ];
+  room.playCard(tokens[0], "cups-ace");
+  room.playCard(tokens[1], "cups-4");
+  room.playCard(tokens[2], "cups-5");
+  return room.resolvePendingTrick();
+}
+
+test("Kaput is detected on a natural hand and remove-11 reward skips normal points", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  const result = prepareKaputFinalTrick(room, tokens, [15, 0, 0]);
+  assert.strictEqual(result.kaput, true);
+  assert.strictEqual(room.game.status, "kaput");
+  assert.strictEqual(room.game.playerScoresThirds[0], 15);
+  assert.strictEqual(room.stateFor(tokens[0]).me.canResolveKaput, true);
+  assert.strictEqual(room.stateFor(tokens[1]).me.canResolveKaput, false);
+  room.chooseKaput(tokens[0], "remove_11");
+  assert.strictEqual(room.game.playerScoresThirds[0], -18);
+  assert.strictEqual(room.game.status, "akuza");
+  assert.strictEqual(room.game.lastHandResult.type, "kaput");
+  assert.strictEqual(room.game.lastHandResult.option, "remove_11");
+});
+
+test("Kaput can give every other player 10 points and then checks 41", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  prepareKaputFinalTrick(room, tokens, [0, MATCH_LIMIT_THIRDS - 30, 0]);
+  room.chooseKaput(tokens[0], "give_others_10");
+  assert.strictEqual(room.game.playerScoresThirds[0], 0);
+  assert.strictEqual(room.game.playerScoresThirds[1], MATCH_LIMIT_THIRDS);
+  assert.strictEqual(room.game.playerScoresThirds[2], 30);
+  assert.strictEqual(room.game.status, "matchEnd");
+  assert.strictEqual(room.game.loserSeat, 1);
+});
+
+test("Kaput is not triggered when Sereš ends the hand early", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  prepareOffSuitChallenge(room, tokens, true);
+  room.game.currentHandPositiveThirds[1] = 30;
+  room.callSeres(tokens[2], "trick_play");
+  assert.strictEqual(room.game.kaputDecision, null);
+  assert.strictEqual(room.game.status, "akuza");
+});
+
 test("Sereš ends the match only when the punished player reaches 41", () => {
   const { room, tokens } = makeSeresRoom(3);
   prepareOffSuitChallenge(room, tokens, true);
@@ -658,6 +820,22 @@ test("Classic 3-player is free-for-all with 13 cards and hidden removed four", (
   assert.strictEqual(room.game.removedCards.length, 1);
   assert.strictEqual(room.game.removedCards[0].rank, "4");
   assert.deepStrictEqual(room.publicState().game.removedCards, []);
+});
+
+test("Classic signals are disabled for 2-player and 3-player but kept for 4-player", () => {
+  [2, 3].forEach((playerCount) => {
+    const { room, tokens } = makeClassicRoom(playerCount, { signals: true });
+    assert.strictEqual(room.settings.signals, false);
+    assert.strictEqual(room.stateFor(tokens[room.game.turnSeat]).me.canSignal, false);
+    assert.throws(() => room.signal(tokens[room.game.turnSeat], "busso"));
+  });
+
+  const { room, tokens } = makeClassicRoom(4, { signals: true });
+  const leaderToken = tokens[room.game.turnSeat];
+  assert.strictEqual(room.settings.signals, true);
+  assert.strictEqual(room.stateFor(leaderToken).me.canSignal, true);
+  const signal = room.signal(leaderToken, "busso");
+  assert.strictEqual(signal.type, "busso");
 });
 
 test("Classic 3-player free-for-all scores seats and can end the match", () => {

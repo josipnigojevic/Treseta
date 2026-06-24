@@ -50,13 +50,20 @@ const elements = {
   declarationBar: $("#declarationBar"),
   akuzaDescription: $("#akuzaDescription"),
   seresAkuzaTurnBar: $("#seresAkuzaTurnBar"),
-  akuzaClaimSelect: $("#akuzaClaimSelect"),
-  akuzaValueSelect: $("#akuzaValueSelect"),
+  seresAkuzaTitle: $("#seresAkuzaTitle"),
+  seresAkuzaSubtitle: $("#seresAkuzaSubtitle"),
+  akuzaClaimOptions: $("#akuzaClaimOptions"),
+  akuzaValueOptions: $("#akuzaValueOptions"),
   seresAkuzaTotal: $("#seresAkuzaTotal"),
   akuzaResponseBar: $("#akuzaResponseBar"),
   pendingAkuzaDescription: $("#pendingAkuzaDescription"),
   seresTrickBar: $("#seresTrickBar"),
   seresTrickDescription: $("#seresTrickDescription"),
+  kaputBar: $("#kaputBar"),
+  kaputTitle: $("#kaputTitle"),
+  kaputDescription: $("#kaputDescription"),
+  kaputRemoveButton: $("#kaputRemoveButton"),
+  kaputGiveButton: $("#kaputGiveButton"),
   ledSuitBadge: $("#ledSuitBadge"),
   signalControls: $("#signalControls"),
   lobbyControls: $("#lobbyControls"),
@@ -101,6 +108,9 @@ let joining = false;
 let currentAccount = null;
 let authMode = "login";
 let wantsRankedAfterAuth = false;
+let preparedAkuzaClaimIds = new Set();
+let preparedAkuzaValue = "";
+let preparedAkuzaHandKey = "";
 
 function selectedMode() {
   return elements.gameModeSetting.value;
@@ -428,6 +438,7 @@ function applyRankedSetting() {
   const seres = isSeresMode();
   const ranked = selectedRanked();
   const playerCount = selectedPlayerCount();
+  const classicSignalsAvailable = !seres && playerCount === 4;
   elements.seresSetup.classList.toggle("hidden", !seres);
   elements.seresThreePlayerDealField.classList.toggle(
     "hidden",
@@ -439,7 +450,9 @@ function applyRankedSetting() {
       : t("lobby.akuzaSpecificHelp");
   elements.rankedSetting.closest(".switch-label").classList.toggle("hidden", seres);
   elements.akuzaSetting.closest(".switch-label").classList.toggle("hidden", seres);
-  elements.signalsSetting.closest(".switch-label").classList.toggle("hidden", seres);
+  elements.signalsSetting
+    .closest(".switch-label")
+    .classList.toggle("hidden", !classicSignalsAvailable);
   elements.modeDescription.textContent = seres
     ? t("mode.seresDescription")
     : t("mode.classicDescription");
@@ -460,8 +473,11 @@ function applyRankedSetting() {
     elements.akuzaSetting.checked = true;
     elements.signalsSetting.checked = false;
   }
+  if (!classicSignalsAvailable) {
+    elements.signalsSetting.checked = false;
+  }
   elements.akuzaSetting.disabled = ranked;
-  elements.signalsSetting.disabled = ranked;
+  elements.signalsSetting.disabled = ranked || !classicSignalsAvailable;
 }
 
 function showToast(message) {
@@ -711,6 +727,11 @@ function renderHand(state) {
       : t("game.waitingAnswer");
   } else if (state.game.pendingTrick) {
     elements.handHint.textContent = t("game.trickResolving");
+  } else if (state.game.status === "kaput") {
+    const player = state.players[state.game.kaputDecision?.kaputSeat];
+    elements.handHint.textContent = player
+      ? t("game.kaputWaiting", { player: player.nickname })
+      : "";
   } else if (state.game.drawReveals?.length) {
     elements.handHint.textContent = state.game.drawReveals
       .map((reveal) =>
@@ -754,24 +775,96 @@ function renderSignals(state) {
 }
 
 function selectedAkuzaClaimIds() {
-  return Array.from(elements.akuzaClaimSelect.selectedOptions).map(
-    (option) => option.value
-  );
+  return [...preparedAkuzaClaimIds];
+}
+
+function akuzaClaimFamily(claim) {
+  return claim.type === "rank-set" ? `${claim.type}:${claim.rank}` : claim.id;
+}
+
+function syncPreparedAkuza(state) {
+  const key =
+    state?.settings?.mode === "seres_u_manje"
+      ? `${state.code}:${state.game.handNumber}:${state.settings.akuzaDeclarationMode}`
+      : "";
+  if (key && key === preparedAkuzaHandKey) return;
+  preparedAkuzaHandKey = key;
+  preparedAkuzaClaimIds = new Set();
+  preparedAkuzaValue = "";
+}
+
+function setPreparedAkuzaClaim(state, claimId, checked) {
+  const claim = state.me.akuzaClaims.find((item) => item.id === claimId);
+  if (!claim) return;
+  if (checked) {
+    const family = akuzaClaimFamily(claim);
+    state.me.akuzaClaims.forEach((item) => {
+      if (item.id !== claimId && akuzaClaimFamily(item) === family) {
+        preparedAkuzaClaimIds.delete(item.id);
+      }
+    });
+    preparedAkuzaClaimIds.add(claimId);
+  } else {
+    preparedAkuzaClaimIds.delete(claimId);
+  }
+  renderAkuza(state);
+}
+
+function renderAkuzaClaimToggles(state) {
+  const claims = state.me.akuzaClaims || [];
+  elements.akuzaClaimOptions.innerHTML = claims
+    .map((claim) => {
+      const selected = preparedAkuzaClaimIds.has(claim.id);
+      return `
+        <label class="akuza-toggle ${selected ? "selected" : ""}">
+          <input type="checkbox" value="${escapeHtml(claim.id)}" ${
+        selected ? "checked" : ""
+      } />
+          <span>${escapeHtml(akuzaLabel(claim))}</span>
+          <strong>-${claim.points}</strong>
+        </label>
+      `;
+    })
+    .join("");
+}
+
+function renderAkuzaValueToggles(state) {
+  const options = state.me.akuzaValueOptions || [];
+  elements.akuzaValueOptions.innerHTML = options
+    .map((option) => {
+      const selected = String(option.points) === String(preparedAkuzaValue);
+      return `
+        <label class="akuza-toggle akuza-value-toggle ${selected ? "selected" : ""}">
+          <input type="radio" name="seresAkuzaValue" value="${option.points}" ${
+        selected ? "checked" : ""
+      } />
+          <span>${escapeHtml(option.label)}</span>
+        </label>
+      `;
+    })
+    .join("");
 }
 
 function updateSeresAkuzaTotal(state = currentState) {
-  if (!state?.me?.akuzaClaims?.length) return;
+  if (!state?.me?.akuzaClaims?.length && !state?.me?.akuzaValueOptions?.length) {
+    return;
+  }
   const specific = state.settings.akuzaDeclarationMode !== "value_only";
   const total = specific
     ? selectedAkuzaClaimIds().reduce((sum, claimId) => {
         const claim = state.me.akuzaClaims.find((item) => item.id === claimId);
         return sum + (claim?.points || 0);
       }, 0)
-    : Math.abs(Number(elements.akuzaValueSelect.value || 0));
+    : Math.abs(Number(preparedAkuzaValue || 0));
   elements.seresAkuzaTotal.textContent = total
     ? t("game.akuzaDeclaredTotal", { total: `−${total}` })
     : t("game.akuzaSelectHint");
-  $("#seresDeclareButton").disabled = total <= 0;
+  const isTurn = Boolean(state.me.canPassAkuza);
+  $("#seresDeclareButton").disabled = total <= 0 || !isTurn;
+  $("#seresDeclareButton").textContent = isTurn
+    ? t("game.declareAkuza")
+    : t("game.waitAkuzaTurn");
+  $("#passAkuzaButton").disabled = !isTurn;
 }
 
 function renderAkuza(state) {
@@ -782,37 +875,25 @@ function renderAkuza(state) {
     .map((combo) => `${akuzaLabel(combo)} (${combo.points})`)
     .join(" + ");
 
+  syncPreparedAkuza(state);
   const claims = state.me.akuzaClaims || [];
-  elements.seresAkuzaTurnBar.classList.toggle("hidden", claims.length === 0);
-  if (claims.length) {
+  const valueOptions = state.me.akuzaValueOptions || [];
+  const canPrepare = claims.length > 0 || valueOptions.length > 0;
+  elements.seresAkuzaTurnBar.classList.toggle("hidden", !canPrepare);
+  if (canPrepare) {
     const valueOnly = state.settings.akuzaDeclarationMode === "value_only";
-    elements.akuzaClaimSelect.classList.toggle("hidden", valueOnly);
-    elements.akuzaValueSelect.classList.toggle("hidden", !valueOnly);
+    elements.akuzaClaimOptions.classList.toggle("hidden", valueOnly);
+    elements.akuzaValueOptions.classList.toggle("hidden", !valueOnly);
+    elements.seresAkuzaTitle.textContent = state.me.canPassAkuza
+      ? t("game.yourAkuzaTurn")
+      : t("game.prepareAkuza");
+    elements.seresAkuzaSubtitle.textContent = state.me.canPassAkuza
+      ? t("game.akuzaBluff")
+      : t("game.prepareAkuzaHint");
     if (valueOnly) {
-      const selected = elements.akuzaValueSelect.value;
-      const options = state.me.akuzaValueOptions || [];
-      elements.akuzaValueSelect.innerHTML = options
-        .map(
-          (option) =>
-            `<option value="${option.points}">${escapeHtml(option.label)}</option>`
-        )
-        .join("");
-      if (options.some((option) => String(option.points) === selected)) {
-        elements.akuzaValueSelect.value = selected;
-      }
+      renderAkuzaValueToggles(state);
     } else {
-      const selected = new Set(selectedAkuzaClaimIds());
-      elements.akuzaClaimSelect.innerHTML = claims
-        .map(
-          (claim) =>
-            `<option value="${escapeHtml(claim.id)}">${escapeHtml(
-              akuzaLabel(claim)
-            )} (−${claim.points})</option>`
-        )
-        .join("");
-      Array.from(elements.akuzaClaimSelect.options).forEach((option) => {
-        option.selected = selected.has(option.value);
-      });
+      renderAkuzaClaimToggles(state);
     }
     updateSeresAkuzaTotal(state);
   }
@@ -829,6 +910,25 @@ function renderAkuza(state) {
   if (canRespondToTrick) {
     updateChallengeCountdown();
   }
+}
+
+function renderKaput(state) {
+  const decision = state.game.kaputDecision;
+  elements.kaputBar.classList.toggle("hidden", !decision);
+  if (!decision) return;
+
+  const player = state.players[decision.kaputSeat];
+  const canChoose = Boolean(state.me.canResolveKaput);
+  elements.kaputTitle.textContent = canChoose
+    ? t("game.kaputChoiceTitle")
+    : "Kaput";
+  elements.kaputDescription.textContent = canChoose
+    ? t("game.kaputChoicePrompt")
+    : t("game.kaputWaiting", {
+        player: player?.nickname || t("game.playerFallback"),
+      });
+  elements.kaputRemoveButton.classList.toggle("hidden", !canChoose);
+  elements.kaputGiveButton.classList.toggle("hidden", !canChoose);
 }
 
 function renderLobbyControls(state) {
@@ -1052,6 +1152,8 @@ function renderState(state) {
       ? t("game.lobby")
       : state.game.status === "akuza"
       ? t("game.handAkuza", { hand: state.game.handNumber })
+      : state.game.status === "kaput"
+      ? t("game.handKaput", { hand: state.game.handNumber })
       : t("game.handTrick", {
           hand: state.game.handNumber,
           trick: Math.min(state.game.trickNumber, tricksPerHand),
@@ -1092,6 +1194,7 @@ function renderState(state) {
   renderHand(state);
   renderSignals(state);
   renderAkuza(state);
+  renderKaput(state);
   renderLobbyControls(state);
   renderScoreOverlay(state);
 }
@@ -1139,16 +1242,19 @@ $("#seresDeclareButton").addEventListener("click", () =>
   emitIntent(
     "declareAkuza",
     currentState?.settings.akuzaDeclarationMode === "value_only"
-      ? { value: Number(elements.akuzaValueSelect.value) }
+      ? { value: Number(preparedAkuzaValue) }
       : { claimIds: selectedAkuzaClaimIds() }
   )
 );
-elements.akuzaClaimSelect.addEventListener("change", () =>
-  updateSeresAkuzaTotal(currentState)
-);
-elements.akuzaValueSelect.addEventListener("change", () =>
-  updateSeresAkuzaTotal(currentState)
-);
+elements.akuzaClaimOptions.addEventListener("change", (event) => {
+  if (!currentState || event.target?.type !== "checkbox") return;
+  setPreparedAkuzaClaim(currentState, event.target.value, event.target.checked);
+});
+elements.akuzaValueOptions.addEventListener("change", (event) => {
+  if (!currentState || event.target?.type !== "radio") return;
+  preparedAkuzaValue = event.target.value;
+  renderAkuza(currentState);
+});
 $("#passAkuzaButton").addEventListener("click", () => emitIntent("passAkuza"));
 $("#continueAkuzaButton").addEventListener("click", () =>
   emitIntent("respondAkuza", { action: "continue" })
@@ -1161,6 +1267,12 @@ $("#seresTrickButton").addEventListener("click", () =>
 );
 $("#continueSeresButton").addEventListener("click", () =>
   emitIntent("continueSeres")
+);
+elements.kaputRemoveButton.addEventListener("click", () =>
+  emitIntent("chooseKaput", { option: "remove_11" })
+);
+elements.kaputGiveButton.addEventListener("click", () =>
+  emitIntent("chooseKaput", { option: "give_others_10" })
 );
 elements.nextHandButton.addEventListener("click", () => emitIntent("nextHand"));
 elements.newMatchButton.addEventListener("click", () => emitIntent("newMatch"));

@@ -269,12 +269,12 @@
 
         <div id="seresAkuzaTurnBar" class="declaration-bar seres-action-bar hidden">
           <div>
-            <span data-i18n="game.yourAkuzaTurn">Vi ste na redu za akužu</span>
-            <strong data-i18n="game.akuzaBluff">Možete prijaviti stvarnu akužu ili blefirati.</strong>
+            <span id="seresAkuzaTitle" data-i18n="game.yourAkuzaTurn">Vi ste na redu za akužu</span>
+            <strong id="seresAkuzaSubtitle" data-i18n="game.akuzaBluff">Možete prijaviti stvarnu akužu ili blefirati.</strong>
             <small id="seresAkuzaTotal" class="field-help"></small>
           </div>
-          <select id="akuzaClaimSelect" multiple></select>
-          <select id="akuzaValueSelect" class="hidden"></select>
+          <div id="akuzaClaimOptions" class="akuza-toggle-grid"></div>
+          <div id="akuzaValueOptions" class="akuza-toggle-grid akuza-value-grid hidden"></div>
           <button id="seresDeclareButton" class="button gold" data-i18n="game.declareAkuza">Prijavi akužu</button>
           <button id="passAkuzaButton" class="button gold" data-i18n="game.pass">Nastavi / Preskoči</button>
         </div>
@@ -292,6 +292,15 @@
           <span id="seresTrickDescription"></span>
           <button id="continueSeresButton" class="button gold" data-i18n="common.continue">Nastavi</button>
           <button id="seresTrickButton" class="button danger">Sereš</button>
+        </div>
+
+        <div id="kaputBar" class="seres-trick-bar kaput-bar hidden">
+          <div>
+            <span id="kaputTitle">Kaput</span>
+            <strong id="kaputDescription"></strong>
+          </div>
+          <button id="kaputRemoveButton" class="button gold" data-i18n="game.kaputRemove">Skini mi 11 bodova</button>
+          <button id="kaputGiveButton" class="button danger" data-i18n="game.kaputGiveOthers">Daj svima ostalima 10 bodova</button>
         </div>
 
         <div id="signalControls" class="signal-controls hidden">

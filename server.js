@@ -418,6 +418,16 @@ io.on("connection", (socket) => {
     })
   );
 
+  socket.on("chooseKaput", (payload = {}, callback) =>
+    withSession(socket, callback, (room, session) => {
+      const result = room.chooseKaput(session.token, String(payload.option || ""));
+      console.log(
+        `[room ${room.code}] Kaput choice ${result.option} by ${result.player.nickname}`
+      );
+      return result;
+    })
+  );
+
   socket.on("signal", (payload = {}, callback) =>
     withSession(socket, callback, (room, session) => {
       const result = room.signal(session.token, payload.type);

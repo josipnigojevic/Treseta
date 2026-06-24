@@ -1232,17 +1232,77 @@ button.playing-card {
 .seres-action-bar {
   flex-wrap: wrap;
   justify-content: center;
+  align-items: stretch;
 }
 
-.seres-action-bar select {
-  width: auto;
-  min-width: 170px;
-  padding: 10px 35px 10px 12px;
+.akuza-toggle-grid {
+  width: min(580px, 100%);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  gap: 7px;
 }
 
-.seres-action-bar select[multiple] {
-  min-height: 136px;
-  padding-right: 12px;
+.akuza-toggle {
+  position: relative;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 11px;
+  color: #e9efe8;
+  border: 1px solid rgba(213, 168, 75, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  cursor: pointer;
+  font-size: 10px;
+  transition: border-color 0.18s, background 0.18s, transform 0.18s;
+}
+
+.akuza-toggle input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.akuza-toggle span,
+.akuza-toggle strong {
+  position: relative;
+  z-index: 1;
+}
+
+.akuza-toggle span {
+  color: #f4e8c4;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.akuza-toggle strong {
+  color: var(--gold-light);
+  font-size: 12px;
+}
+
+.akuza-toggle.selected {
+  border-color: rgba(242, 213, 141, 0.82);
+  background: rgba(213, 168, 75, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(242, 213, 141, 0.2);
+}
+
+.akuza-toggle:active {
+  transform: translateY(1px);
+}
+
+.akuza-value-grid {
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  max-width: 520px;
+}
+
+.akuza-value-toggle {
+  justify-content: center;
+  min-height: 38px;
 }
 
 .seres-trick-bar {
@@ -1254,6 +1314,22 @@ button.playing-card {
 
 .seres-trick-bar span {
   font-size: 11px;
+}
+
+.kaput-bar {
+  color: #fff4d6;
+  border-color: rgba(242, 213, 141, 0.7);
+  background: rgba(73, 49, 10, 0.96);
+}
+
+.kaput-bar div {
+  min-width: min(360px, 100%);
+}
+
+.kaput-bar strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
 }
 
 .declaration-bar span,
@@ -1994,8 +2070,13 @@ button.playing-card {
   }
 
   .declaration-bar,
-  .signal-controls {
+  .signal-controls,
+  .seres-trick-bar {
     max-width: calc(100vw - 16px);
+  }
+
+  .akuza-toggle-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
   .signal-controls > span {

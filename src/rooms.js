@@ -42,7 +42,8 @@ const {
 const SEAT_NAMES = ["Sjever", "Istok", "Jug", "Zapad", "Sidro"];
 const RESERVATION_MS = 90_000;
 const ROOM_IDLE_MS = 30 * 60_000;
-const SERES_PENALTY_THIRDS = 11 * 3;
+const SERES_HAND_POSITIVE_THIRDS = 11 * 3;
+const SERES_PENALTY_THIRDS = SERES_HAND_POSITIVE_THIRDS;
 const MATCH_LIMIT_THIRDS = 41 * 3;
 
 function makeToken() {
@@ -71,6 +72,16 @@ function scoreFromThirds(thirds) {
     remainderThirds: Math.abs(thirds % 3),
     value: thirds / 3,
   };
+}
+
+function formatThirdsPlain(thirds) {
+  const value = Number(thirds || 0);
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
+  const whole = Math.floor(absolute / 3);
+  const remainder = absolute % 3;
+  if (!remainder) return `${sign}${whole}`;
+  return `${sign}${whole ? `${whole} ` : ""}${remainder}/3`;
 }
 
 function cardName(card) {
@@ -119,6 +130,8 @@ class Room {
           : settings.akuza !== false,
       signals:
         mode === GAME_MODE_SERES_U_MANJE
+          ? false
+          : playerCount !== 4
           ? false
           : ranked
           ? false
@@ -195,6 +208,7 @@ class Room {
       teamScores: [0, 0],
       playerScoresThirds: Array(this.settings.playerCount).fill(0),
       handStartScoresThirds: Array(this.settings.playerCount).fill(0),
+      currentHandPositiveThirds: Array(this.settings.playerCount).fill(0),
       declarations: [],
       declaredSeats: new Set(),
       hasPlayed: Array(this.settings.playerCount).fill(false),
@@ -209,6 +223,7 @@ class Room {
       lastTrickWinnerSeat: null,
       handBreakdown: null,
       lastHandResult: null,
+      kaputDecision: null,
       winnerTeam: null,
       winnerSeat: null,
       loserSeat: null,
@@ -372,8 +387,10 @@ class Room {
     this.game.hasPlayed = Array(count).fill(false);
     this.game.akuzaPoints = [0, 0];
     this.game.akuzaPointsBySeat = Array(count).fill(0);
+    this.game.currentHandPositiveThirds = Array(count).fill(0);
     this.game.akuzaPhase = null;
     this.game.seresOpportunity = null;
+    this.game.kaputDecision = null;
     this.game.signals = [];
     this.game.drawReveals = [];
     this.game.drawLog = [];
@@ -385,6 +402,34 @@ class Room {
     this.game.loserSeat = null;
     this.game.standings = null;
     this.game.handStartScoresThirds = [...this.game.playerScoresThirds];
+  }
+
+  addSeresPositiveHandThirds(seat, requestedThirds) {
+    const current = Math.max(0, this.game.currentHandPositiveThirds[seat] || 0);
+    const available = Math.max(0, SERES_HAND_POSITIVE_THIRDS - current);
+    const applied = Math.min(Math.max(0, requestedThirds), available);
+    this.game.currentHandPositiveThirds[seat] = current + applied;
+    this.game.playerScoresThirds[seat] += applied;
+    return applied;
+  }
+
+  detectKaputSeat() {
+    const scores = this.game.currentHandPositiveThirds;
+    const kaputSeat = scores.findIndex(
+      (thirds) => thirds >= SERES_HAND_POSITIVE_THIRDS
+    );
+    if (kaputSeat === -1) return null;
+    return scores.every((thirds, seat) => seat === kaputSeat || thirds === 0)
+      ? kaputSeat
+      : null;
+  }
+
+  rollbackUnpunishedSeresHandPoints(punishedSeat) {
+    this.game.currentHandPositiveThirds.forEach((thirds, seat) => {
+      if (seat === punishedSeat || thirds <= 0) return;
+      this.game.playerScoresThirds[seat] -= thirds;
+      this.game.currentHandPositiveThirds[seat] = 0;
+    });
   }
 
   dealNextHandInternal(firstHand = false, previousMessage = "") {
@@ -876,17 +921,24 @@ class Room {
     }
 
     const punishedSeat = accusedWasLying ? accusedSeat : caller.seat;
-    this.game.playerScoresThirds[punishedSeat] += SERES_PENALTY_THIRDS;
+    const positiveBeforeThirds =
+      this.game.currentHandPositiveThirds[punishedSeat] || 0;
+    const penaltyThirds = this.addSeresPositiveHandThirds(
+      punishedSeat,
+      SERES_PENALTY_THIRDS
+    );
+    this.rollbackUnpunishedSeresHandPoints(punishedSeat);
+    const penaltyText = formatThirdsPlain(penaltyThirds);
     const accused = this.players[accusedSeat];
     const punished = this.players[punishedSeat];
     const resolution =
       context === "akuza"
         ? accusedWasLying
-          ? `${caller.nickname} zove Sereš na akužu igrača ${accused.nickname}! ${accused.nickname} nije imao tu akužu i dobiva 11 bodova. Ruka je završena.`
-          : `${caller.nickname} zove Sereš na akužu igrača ${accused.nickname}! Poziv nije bio točan pa ${caller.nickname} dobiva 11 bodova. Ruka je završena.`
+          ? `${caller.nickname} zove Sereš na akužu igrača ${accused.nickname}! ${accused.nickname} nije imao tu akužu i dobiva ${penaltyText} bodova. Ruka je završena.`
+          : `${caller.nickname} zove Sereš na akužu igrača ${accused.nickname}! Poziv nije bio točan pa ${caller.nickname} dobiva ${penaltyText} bodova. Ruka je završena.`
         : accusedWasLying
-        ? `${caller.nickname} zove Sereš na igrača ${accused.nickname}! ${accused.nickname} imao je traženu boju i dobiva 11 bodova. Ruka je završena.`
-        : `${caller.nickname} zove Sereš na igrača ${accused.nickname}! Poziv nije bio točan pa ${caller.nickname} dobiva 11 bodova. Ruka je završena.`;
+        ? `${caller.nickname} zove Sereš na igrača ${accused.nickname}! ${accused.nickname} imao je traženu boju i dobiva ${penaltyText} bodova. Ruka je završena.`
+        : `${caller.nickname} zove Sereš na igrača ${accused.nickname}! Poziv nije bio točan pa ${caller.nickname} dobiva ${penaltyText} bodova. Ruka je završena.`;
 
     const result = {
       type: "seres",
@@ -896,7 +948,11 @@ class Room {
       accusedSeat,
       punishedSeat,
       accusedWasLying,
-      penaltyPoints: 11,
+      penaltyPoints: penaltyThirds / 3,
+      penaltyThirds,
+      positiveHandBeforeThirds: positiveBeforeThirds,
+      positiveHandAfterThirds:
+        this.game.currentHandPositiveThirds[punishedSeat] || 0,
       detail,
       message: resolution,
       scoreChanges: this.game.playerScoresThirds.map((score, seat) => ({
@@ -927,6 +983,98 @@ class Room {
       return;
     }
     this.dealNextHandInternal(false, resolution);
+  }
+
+  startKaputDecision(kaputSeat) {
+    const kaputPlayer = this.players[kaputSeat];
+    const positiveThirds =
+      this.game.currentHandPositiveThirds[kaputSeat] || SERES_HAND_POSITIVE_THIRDS;
+    this.game.playerScoresThirds[kaputSeat] -= positiveThirds;
+    const message = `Kaput! ${kaputPlayer.nickname} je uzeo svih 11 bodova. Čeka se izbor nagrade.`;
+    this.game.status = "kaput";
+    this.game.trick = [];
+    this.game.pendingTrick = null;
+    this.game.seresOpportunity = null;
+    this.game.akuzaPhase = null;
+    this.game.turnSeat = null;
+    this.game.hands = Array.from({ length: this.settings.playerCount }, () => []);
+    this.game.kaputDecision = {
+      handNumber: this.game.handNumber,
+      kaputSeat,
+      positiveThirds,
+      options: ["remove_11", "give_others_10"],
+    };
+    this.game.lastHandResult = {
+      type: "kaput_pending",
+      handNumber: this.game.handNumber,
+      kaputSeat,
+      positiveThirds,
+      message,
+      scoreChanges: this.game.playerScoresThirds.map((score, seat) => ({
+        seat,
+        beforeThirds: this.game.handStartScoresThirds[seat],
+        afterThirds: score,
+      })),
+      discard: this.game.discard,
+    };
+    this.game.message = message;
+    return { handFinished: true, kaput: true, result: this.game.lastHandResult };
+  }
+
+  chooseKaput(token, option) {
+    if (!this.isSeresMode || this.game.status !== "kaput") {
+      throw new Error("Kaput izbor sada nije dostupan.");
+    }
+    const player = this.requirePlayer(token);
+    const decision = this.game.kaputDecision;
+    if (!decision || decision.kaputSeat !== player.seat) {
+      throw new Error("Samo igrač koji je napravio Kaput može odabrati nagradu.");
+    }
+    const normalized = String(option || "");
+    if (!decision.options.includes(normalized)) {
+      throw new Error("Odaberite valjanu Kaput nagradu.");
+    }
+
+    const beforeThirds = [...this.game.playerScoresThirds];
+    let message;
+    if (normalized === "remove_11") {
+      this.game.playerScoresThirds[player.seat] -= SERES_HAND_POSITIVE_THIRDS;
+      message = `${player.nickname} je napravio Kaput i skinuo 11 bodova.`;
+    } else {
+      this.players.forEach((_candidate, seat) => {
+        if (seat !== player.seat) {
+          this.game.playerScoresThirds[seat] += 10 * 3;
+        }
+      });
+      message = `${player.nickname} je napravio Kaput i dao svima ostalima 10 bodova.`;
+    }
+
+    const result = {
+      type: "kaput",
+      handNumber: this.game.handNumber,
+      kaputSeat: player.seat,
+      option: normalized,
+      message,
+      scoreChanges: this.game.playerScoresThirds.map((score, seat) => ({
+        seat,
+        beforeThirds: beforeThirds[seat],
+        afterThirds: score,
+      })),
+      discard: this.game.discard,
+    };
+    this.game.kaputDecision = null;
+    this.game.lastHandResult = result;
+
+    const loserSeat = this.game.playerScoresThirds.findIndex(
+      (score) => score >= MATCH_LIMIT_THIRDS
+    );
+    if (loserSeat !== -1) {
+      this.finishSeresMatch(loserSeat, message);
+    } else {
+      this.dealNextHandInternal(false, `${message} Nitko nije dosegao 41 bod.`);
+    }
+    this.touch();
+    return { player, option: normalized, result };
   }
 
   resolvePendingTrick() {
@@ -1063,13 +1211,26 @@ class Room {
     const cardThirds = scoreCardsInThirds(cards);
     const lastTrickBonusThirds = handFinished ? 3 : 0;
     const trickThirds = cardThirds + lastTrickBonusThirds;
-    this.game.playerScoresThirds[winnerSeat] += trickThirds;
+    const appliedTrickThirds = this.addSeresPositiveHandThirds(
+      winnerSeat,
+      trickThirds
+    );
     this.game.capturedBySeat[winnerSeat].push(...cards);
     this.game.trick = [];
     this.game.pendingTrick = null;
     this.game.leaderSeat = winnerSeat;
 
-    if (this.game.playerScoresThirds[winnerSeat] >= MATCH_LIMIT_THIRDS) {
+    if (handFinished) {
+      const kaputSeat = this.detectKaputSeat();
+      if (kaputSeat !== null) {
+        return this.startKaputDecision(kaputSeat);
+      }
+    }
+
+    if (
+      !handFinished &&
+      this.game.playerScoresThirds[winnerSeat] >= MATCH_LIMIT_THIRDS
+    ) {
       const message = `${this.players[winnerSeat].nickname} dosegao je 41 bod bodovima iz štiha.`;
       this.game.lastHandResult = {
         type: "match_limit",
@@ -1124,6 +1285,7 @@ class Room {
       cardThirds,
       lastTrickBonusThirds,
       trickThirds,
+      appliedTrickThirds,
     };
   }
 
@@ -1144,6 +1306,7 @@ class Room {
     this.game.turnSeat = null;
     this.game.akuzaPhase = null;
     this.game.seresOpportunity = null;
+    this.game.kaputDecision = null;
     this.game.loserSeat = loserSeat;
     this.game.standings = this.standings();
     this.game.handBreakdown = this.game.standings.map((entry) => ({
@@ -1234,6 +1397,9 @@ class Room {
         lastTrickWinnerSeat: this.game.lastTrickWinnerSeat,
         handBreakdown: this.game.handBreakdown,
         lastHandResult: this.game.lastHandResult,
+        kaputDecision: this.game.kaputDecision
+          ? { ...this.game.kaputDecision }
+          : null,
         winnerTeam: this.game.winnerTeam,
         winnerSeat: this.game.winnerSeat,
         loserSeat: this.game.loserSeat,
@@ -1263,9 +1429,12 @@ class Room {
         ? detectAkuza(hand)
         : [];
     const pendingAkuza = this.game.akuzaPhase?.pendingDeclaration;
-    const isAkuzaTurn =
+    const canPrepareAkuza =
       this.isSeresMode &&
       this.game.status === "akuza" &&
+      Boolean(this.game.akuzaPhase?.active);
+    const isAkuzaTurn =
+      canPrepareAkuza &&
       !pendingAkuza &&
       this.game.akuzaPhase?.currentPlayerSeat === player.seat;
     const canRespondAkuza =
@@ -1291,8 +1460,8 @@ class Room {
               )
             : [],
         akuza: classicAkuza,
-        akuzaClaims: isAkuzaTurn ? AKUZA_CLAIMS : [],
-        akuzaValueOptions: isAkuzaTurn
+        akuzaClaims: canPrepareAkuza ? AKUZA_CLAIMS : [],
+        akuzaValueOptions: canPrepareAkuza
           ? validAkuzaTotals().map((points) => ({
               points,
               value: -points,
@@ -1311,6 +1480,10 @@ class Room {
           this.game.status === "playing" &&
           Boolean(this.game.seresOpportunity) &&
           this.game.seresOpportunity.currentResponderSeat === player.seat,
+        canResolveKaput:
+          this.isSeresMode &&
+          this.game.status === "kaput" &&
+          this.game.kaputDecision?.kaputSeat === player.seat,
         ratingChange: player.accountId
           ? this.game.ratingChanges[player.accountId] || null
           : null,
@@ -1443,6 +1616,7 @@ module.exports = {
   Room,
   RoomManager,
   SEAT_NAMES,
+  SERES_HAND_POSITIVE_THIRDS,
   RESERVATION_MS,
   SERES_PENALTY_THIRDS,
   MATCH_LIMIT_THIRDS,

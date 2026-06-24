@@ -62,7 +62,7 @@
       "lobby.akuzaSpecificHelp":
         "Igrači moraju prijaviti koju akužu tvrde da imaju.",
       "lobby.akuzaValueOnlyHelp":
-        "Igrači prijavljuju samo ukupno, npr. -3, -6 ili -9.",
+        "Igrači prijavljuju samo ukupno, npr. -3, -8 ili -12.",
       "lobby.seresDealStyle": "Stil dijeljenja za 3 igrača",
       "lobby.seresDeal13": "13 karata + 1 skriveni škart",
       "lobby.seresDeal12": "12 karata + makni sve četvorke",
@@ -86,8 +86,18 @@
       "game.declareAkuza": "Prijavi akužu",
       "game.yourAkuzaTurn": "Vi ste na redu za akužu",
       "game.akuzaBluff": "Možete prijaviti stvarnu akužu ili blefirati.",
+      "game.prepareAkuza": "Pripremite akužu",
+      "game.prepareAkuzaHint":
+        "Možete pripremiti odabir sada; potvrda se otvara kad dođe vaš red.",
+      "game.waitAkuzaTurn": "Čekajte svoj red",
       "game.pass": "Nastavi / Preskoči",
       "game.openAkuza": "Otvorena akuža",
+      "game.kaputChoiceTitle": "Kaput! Odaberite nagradu",
+      "game.kaputChoicePrompt":
+        "Uzeli ste svih 11 bodova. Odaberite nagradu.",
+      "game.kaputWaiting": "Čekamo da {player} odabere Kaput nagradu.",
+      "game.kaputRemove": "Skini mi 11 bodova",
+      "game.kaputGiveOthers": "Daj svima ostalima 10 bodova",
       "game.signalBeforeLead": "Signal prije izlaza",
       "game.yourCards": "Vaše karte",
       "game.lowerIsBetter": "niže je bolje",
@@ -107,6 +117,7 @@
       "game.waitingReturn": "Stol je pun, ali čekamo povratak {count}.",
       "game.tableReady": "Stol je pun. Domaćin može podijeliti karte.",
       "game.handAkuza": "Ruka {hand} · faza akuže",
+      "game.handKaput": "Ruka {hand} · Kaput",
       "game.handTrick": "Ruka {hand} · štih {trick}/{total}",
       "game.responseSeconds": "{seconds} s za odgovor",
       "game.akuzaOn": "Akuža uključena",
@@ -239,13 +250,19 @@
       "server.noOneReached": "Nitko nije dosegao 41 bod.",
       "server.losesMatch": "{player} dosegao je 41 bod i gubi partiju.",
       "server.seresAkuzaCorrect":
-        "{caller} zove Sereš na akužu igrača {accused}! {accused} nije imao tu akužu i dobiva 11 bodova. Ruka je završena.",
+        "{caller} zove Sereš na akužu igrača {accused}! {accused} nije imao tu akužu i dobiva {points} bodova. Ruka je završena.",
       "server.seresAkuzaWrong":
-        "{caller} zove Sereš na akužu igrača {accused}! Poziv nije bio točan pa {caller} dobiva 11 bodova. Ruka je završena.",
+        "{caller} zove Sereš na akužu igrača {accused}! Poziv nije bio točan pa {caller} dobiva {points} bodova. Ruka je završena.",
       "server.seresPlayCorrect":
-        "{caller} zove Sereš na igrača {accused}! {accused} imao je traženu boju i dobiva 11 bodova. Ruka je završena.",
+        "{caller} zove Sereš na igrača {accused}! {accused} imao je traženu boju i dobiva {points} bodova. Ruka je završena.",
       "server.seresPlayWrong":
-        "{caller} zove Sereš na igrača {accused}! Poziv nije bio točan pa {caller} dobiva 11 bodova. Ruka je završena.",
+        "{caller} zove Sereš na igrača {accused}! Poziv nije bio točan pa {caller} dobiva {points} bodova. Ruka je završena.",
+      "server.kaputPending":
+        "Kaput! {player} je uzeo svih 11 bodova. Čeka se izbor nagrade.",
+      "server.kaputRemove":
+        "{player} je napravio Kaput i skinuo 11 bodova.",
+      "server.kaputGive":
+        "{player} je napravio Kaput i dao svima ostalima 10 bodova.",
       "noun.player.one": "{count} igrač",
       "noun.player.few": "{count} igrača",
       "noun.player.many": "{count} igrača",
@@ -324,7 +341,7 @@
       "lobby.akuzaSpecificHelp":
         "I giocatori devono dichiarare quale akuža affermano di avere.",
       "lobby.akuzaValueOnlyHelp":
-        "I giocatori dichiarano solo il totale, per esempio -3, -6 o -9.",
+        "I giocatori dichiarano solo il totale, per esempio -3, -8 o -12.",
       "lobby.seresDealStyle": "Distribuzione per 3 giocatori",
       "lobby.seresDeal13": "13 carte + 1 scarto nascosto",
       "lobby.seresDeal12": "12 carte + togli tutti i 4",
@@ -348,8 +365,18 @@
       "game.declareAkuza": "Dichiara akuža",
       "game.yourAkuzaTurn": "È il tuo turno per l'akuža",
       "game.akuzaBluff": "Puoi dichiarare un'akuža reale oppure bluffare.",
+      "game.prepareAkuza": "Prepara l'akuža",
+      "game.prepareAkuzaHint":
+        "Puoi preparare la scelta ora; la conferma si attiva al tuo turno.",
+      "game.waitAkuzaTurn": "Attendi il tuo turno",
       "game.pass": "Continua / Passa",
       "game.openAkuza": "Akuža dichiarata",
+      "game.kaputChoiceTitle": "Kaput! Scegli la ricompensa",
+      "game.kaputChoicePrompt":
+        "Hai preso tutti gli 11 punti. Scegli la ricompensa.",
+      "game.kaputWaiting": "In attesa che {player} scelga la ricompensa Kaput.",
+      "game.kaputRemove": "Toglimi 11 punti",
+      "game.kaputGiveOthers": "Dai 10 punti a tutti gli altri",
       "game.signalBeforeLead": "Segnale prima dell'uscita",
       "game.yourCards": "Le tue carte",
       "game.lowerIsBetter": "meno è meglio",
@@ -370,6 +397,7 @@
         "Il tavolo è pieno, ma attendiamo il ritorno di {count}.",
       "game.tableReady": "Il tavolo è pieno. L'host può distribuire le carte.",
       "game.handAkuza": "Mano {hand} · fase akuža",
+      "game.handKaput": "Mano {hand} · Kaput",
       "game.handTrick": "Mano {hand} · presa {trick}/{total}",
       "game.responseSeconds": "{seconds} s per rispondere",
       "game.akuzaOn": "Akuža attiva",
@@ -502,13 +530,19 @@
       "server.noOneReached": "Nessuno ha raggiunto 41 punti.",
       "server.losesMatch": "{player} ha raggiunto 41 punti e perde la partita.",
       "server.seresAkuzaCorrect":
-        "{caller} chiama Sereš sull'akuža di {accused}! {accused} non aveva quell'akuža e riceve 11 punti. La mano è finita.",
+        "{caller} chiama Sereš sull'akuža di {accused}! {accused} non aveva quell'akuža e riceve {points} punti. La mano è finita.",
       "server.seresAkuzaWrong":
-        "{caller} chiama Sereš sull'akuža di {accused}! La chiamata era errata e {caller} riceve 11 punti. La mano è finita.",
+        "{caller} chiama Sereš sull'akuža di {accused}! La chiamata era errata e {caller} riceve {points} punti. La mano è finita.",
       "server.seresPlayCorrect":
-        "{caller} chiama Sereš su {accused}! {accused} aveva il seme d'uscita e riceve 11 punti. La mano è finita.",
+        "{caller} chiama Sereš su {accused}! {accused} aveva il seme d'uscita e riceve {points} punti. La mano è finita.",
       "server.seresPlayWrong":
-        "{caller} chiama Sereš su {accused}! La chiamata era errata e {caller} riceve 11 punti. La mano è finita.",
+        "{caller} chiama Sereš su {accused}! La chiamata era errata e {caller} riceve {points} punti. La mano è finita.",
+      "server.kaputPending":
+        "Kaput! {player} ha preso tutti gli 11 punti. In attesa della ricompensa.",
+      "server.kaputRemove":
+        "{player} ha fatto Kaput e ha tolto 11 punti.",
+      "server.kaputGive":
+        "{player} ha fatto Kaput e ha dato 10 punti a tutti gli altri.",
       "noun.player.one": "{count} giocatore",
       "noun.player.few": "{count} giocatori",
       "noun.player.many": "{count} giocatori",
@@ -587,7 +621,7 @@
       "lobby.akuzaSpecificHelp":
         "Players must declare which akuža they claim.",
       "lobby.akuzaValueOnlyHelp":
-        "Players declare only the total, such as -3, -6, or -9.",
+        "Players declare only the total, such as -3, -8, or -12.",
       "lobby.seresDealStyle": "3-player deal style",
       "lobby.seresDeal13": "13 cards + 1 hidden discard",
       "lobby.seresDeal12": "12 cards + remove all 4s",
@@ -611,8 +645,18 @@
       "game.declareAkuza": "Declare akuža",
       "game.yourAkuzaTurn": "Your akuža turn",
       "game.akuzaBluff": "You may declare a real akuža or bluff.",
+      "game.prepareAkuza": "Prepare akuža",
+      "game.prepareAkuzaHint":
+        "You can prepare a selection now; confirm unlocks on your turn.",
+      "game.waitAkuzaTurn": "Wait for your turn",
       "game.pass": "Continue / Pass",
       "game.openAkuza": "Declared akuža",
+      "game.kaputChoiceTitle": "Kaput! Choose your reward",
+      "game.kaputChoicePrompt":
+        "You took all 11 points. Choose your reward.",
+      "game.kaputWaiting": "Waiting for {player} to choose a Kaput reward.",
+      "game.kaputRemove": "Remove 11 from my score",
+      "game.kaputGiveOthers": "Give everyone else 10 points",
       "game.signalBeforeLead": "Signal before leading",
       "game.yourCards": "Your cards",
       "game.lowerIsBetter": "lower is better",
@@ -633,6 +677,7 @@
         "The table is full, but we are waiting for {count} to return.",
       "game.tableReady": "The table is full. The host can deal the cards.",
       "game.handAkuza": "Hand {hand} · akuža phase",
+      "game.handKaput": "Hand {hand} · Kaput",
       "game.handTrick": "Hand {hand} · trick {trick}/{total}",
       "game.responseSeconds": "{seconds}s to respond",
       "game.akuzaOn": "Akuža enabled",
@@ -763,13 +808,19 @@
       "server.noOneReached": "No player reached 41.",
       "server.losesMatch": "{player} reached 41 and loses the match.",
       "server.seresAkuzaCorrect":
-        "{caller} calls Sereš on {accused}'s akuža! {accused} did not have it and receives 11 points. The hand is over.",
+        "{caller} calls Sereš on {accused}'s akuža! {accused} did not have it and receives {points} points. The hand is over.",
       "server.seresAkuzaWrong":
-        "{caller} calls Sereš on {accused}'s akuža! The call was wrong, so {caller} receives 11 points. The hand is over.",
+        "{caller} calls Sereš on {accused}'s akuža! The call was wrong, so {caller} receives {points} points. The hand is over.",
       "server.seresPlayCorrect":
-        "{caller} calls Sereš on {accused}! {accused} had the led suit and receives 11 points. The hand is over.",
+        "{caller} calls Sereš on {accused}! {accused} had the led suit and receives {points} points. The hand is over.",
       "server.seresPlayWrong":
-        "{caller} calls Sereš on {accused}! The call was wrong, so {caller} receives 11 points. The hand is over.",
+        "{caller} calls Sereš on {accused}! The call was wrong, so {caller} receives {points} points. The hand is over.",
+      "server.kaputPending":
+        "Kaput! {player} took all 11 points. Waiting for the reward choice.",
+      "server.kaputRemove":
+        "{player} made Kaput and removed 11 points.",
+      "server.kaputGive":
+        "{player} made Kaput and gave everyone else 10 points.",
       "noun.player.one": "{count} player",
       "noun.player.few": "{count} players",
       "noun.player.many": "{count} players",
@@ -1037,6 +1088,18 @@
       it: "Sereš può essere chiamato solo sull'ultima carta giocata.",
       en: "Sereš can only be called on the most recently played card.",
     },
+    "Kaput izbor sada nije dostupan.": {
+      it: "La scelta Kaput non è disponibile adesso.",
+      en: "The Kaput choice is not available right now.",
+    },
+    "Samo igrač koji je napravio Kaput može odabrati nagradu.": {
+      it: "Solo il giocatore che ha fatto Kaput può scegliere la ricompensa.",
+      en: "Only the player who made Kaput can choose the reward.",
+    },
+    "Odaberite valjanu Kaput nagradu.": {
+      it: "Scegli una ricompensa Kaput valida.",
+      en: "Choose a valid Kaput reward.",
+    },
     "Rangirana partija zahtijeva prijavljene igrače.": {
       it: "Una partita classificata richiede giocatori autenticati.",
       en: "A ranked match requires signed-in players.",
@@ -1153,24 +1216,39 @@
       ["player"],
     ],
     [
-      /^(.+) zove Sereš na akužu igrača (.+)! (.+) nije imao tu akužu i dobiva 11 bodova\. Ruka je završena\.$/,
+      /^(.+) zove Sereš na akužu igrača (.+)! (.+) nije imao tu akužu i dobiva ([\d/ ]+) bodova\. Ruka je završena\.$/,
       "server.seresAkuzaCorrect",
-      ["caller", "accused", "ignored"],
+      ["caller", "accused", "ignored", "points"],
     ],
     [
-      /^(.+) zove Sereš na akužu igrača (.+)! Poziv nije bio točan pa (.+) dobiva 11 bodova\. Ruka je završena\.$/,
+      /^(.+) zove Sereš na akužu igrača (.+)! Poziv nije bio točan pa (.+) dobiva ([\d/ ]+) bodova\. Ruka je završena\.$/,
       "server.seresAkuzaWrong",
-      ["caller", "accused", "ignored"],
+      ["caller", "accused", "ignored", "points"],
     ],
     [
-      /^(.+) zove Sereš na igrača (.+)! (.+) imao je traženu boju i dobiva 11 bodova\. Ruka je završena\.$/,
+      /^(.+) zove Sereš na igrača (.+)! (.+) imao je traženu boju i dobiva ([\d/ ]+) bodova\. Ruka je završena\.$/,
       "server.seresPlayCorrect",
-      ["caller", "accused", "ignored"],
+      ["caller", "accused", "ignored", "points"],
     ],
     [
-      /^(.+) zove Sereš na igrača (.+)! Poziv nije bio točan pa (.+) dobiva 11 bodova\. Ruka je završena\.$/,
+      /^(.+) zove Sereš na igrača (.+)! Poziv nije bio točan pa (.+) dobiva ([\d/ ]+) bodova\. Ruka je završena\.$/,
       "server.seresPlayWrong",
-      ["caller", "accused", "ignored"],
+      ["caller", "accused", "ignored", "points"],
+    ],
+    [
+      /^Kaput! (.+) je uzeo svih 11 bodova\. Čeka se izbor nagrade\.$/,
+      "server.kaputPending",
+      ["player"],
+    ],
+    [
+      /^(.+) je napravio Kaput i skinuo 11 bodova\.$/,
+      "server.kaputRemove",
+      ["player"],
+    ],
+    [
+      /^(.+) je napravio Kaput i dao svima ostalima 10 bodova\.$/,
+      "server.kaputGive",
+      ["player"],
     ],
   ];
 
@@ -1179,24 +1257,34 @@
 
     const compoundPatterns = [
       [
-        /^(.+) zove Sereš na akužu igrača (.+)! (.+) nije imao tu akužu i dobiva 11 bodova\. Ruka je završena\.\s*(.*)$/,
+        /^(.+) zove Sereš na akužu igrača (.+)! (.+) nije imao tu akužu i dobiva ([\d/ ]+) bodova\. Ruka je završena\.\s*(.*)$/,
         "server.seresAkuzaCorrect",
-        ["caller", "accused", "ignored", "rest"],
+        ["caller", "accused", "ignored", "points", "rest"],
       ],
       [
-        /^(.+) zove Sereš na akužu igrača (.+)! Poziv nije bio točan pa (.+) dobiva 11 bodova\. Ruka je završena\.\s*(.*)$/,
+        /^(.+) zove Sereš na akužu igrača (.+)! Poziv nije bio točan pa (.+) dobiva ([\d/ ]+) bodova\. Ruka je završena\.\s*(.*)$/,
         "server.seresAkuzaWrong",
-        ["caller", "accused", "ignored", "rest"],
+        ["caller", "accused", "ignored", "points", "rest"],
       ],
       [
-        /^(.+) zove Sereš na igrača (.+)! (.+) imao je traženu boju i dobiva 11 bodova\. Ruka je završena\.\s*(.*)$/,
+        /^(.+) zove Sereš na igrača (.+)! (.+) imao je traženu boju i dobiva ([\d/ ]+) bodova\. Ruka je završena\.\s*(.*)$/,
         "server.seresPlayCorrect",
-        ["caller", "accused", "ignored", "rest"],
+        ["caller", "accused", "ignored", "points", "rest"],
       ],
       [
-        /^(.+) zove Sereš na igrača (.+)! Poziv nije bio točan pa (.+) dobiva 11 bodova\. Ruka je završena\.\s*(.*)$/,
+        /^(.+) zove Sereš na igrača (.+)! Poziv nije bio točan pa (.+) dobiva ([\d/ ]+) bodova\. Ruka je završena\.\s*(.*)$/,
         "server.seresPlayWrong",
-        ["caller", "accused", "ignored", "rest"],
+        ["caller", "accused", "ignored", "points", "rest"],
+      ],
+      [
+        /^(.+) je napravio Kaput i skinuo 11 bodova\.\s*(.*)$/,
+        "server.kaputRemove",
+        ["player", "rest"],
+      ],
+      [
+        /^(.+) je napravio Kaput i dao svima ostalima 10 bodova\.\s*(.*)$/,
+        "server.kaputGive",
+        ["player", "rest"],
       ],
       [
         /^Akuža igrača (.+) prihvaćena je i oduzima (\d+) boda\.\s*(.*)$/,
