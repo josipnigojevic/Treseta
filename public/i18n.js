@@ -94,7 +94,7 @@
       "game.openAkuza": "Otvorena akuža",
       "game.kaputChoiceTitle": "Kaput! Odaberite nagradu",
       "game.kaputChoicePrompt":
-        "Uzeli ste svih 11 bodova. Odaberite nagradu.",
+        "Uzeli ste 10 ili više bodova. Odaberite nagradu.",
       "game.kaputWaiting": "Čekamo da {player} odabere Kaput nagradu.",
       "game.kaputRemove": "Skini mi 11 bodova",
       "game.kaputGiveOthers": "Daj svima ostalima 10 bodova",
@@ -258,7 +258,7 @@
       "server.seresPlayWrong":
         "{caller} zove Sereš na igrača {accused}! Poziv nije bio točan pa {caller} dobiva {points} bodova. Ruka je završena.",
       "server.kaputPending":
-        "Kaput! {player} je uzeo svih 11 bodova. Čeka se izbor nagrade.",
+        "Kaput! {player} je uzeo 10 ili više bodova. Čeka se izbor nagrade.",
       "server.kaputRemove":
         "{player} je napravio Kaput i skinuo 11 bodova.",
       "server.kaputGive":
@@ -373,7 +373,7 @@
       "game.openAkuza": "Akuža dichiarata",
       "game.kaputChoiceTitle": "Kaput! Scegli la ricompensa",
       "game.kaputChoicePrompt":
-        "Hai preso tutti gli 11 punti. Scegli la ricompensa.",
+        "Hai preso 10 o più punti. Scegli la ricompensa.",
       "game.kaputWaiting": "In attesa che {player} scelga la ricompensa Kaput.",
       "game.kaputRemove": "Toglimi 11 punti",
       "game.kaputGiveOthers": "Dai 10 punti a tutti gli altri",
@@ -538,7 +538,7 @@
       "server.seresPlayWrong":
         "{caller} chiama Sereš su {accused}! La chiamata era errata e {caller} riceve {points} punti. La mano è finita.",
       "server.kaputPending":
-        "Kaput! {player} ha preso tutti gli 11 punti. In attesa della ricompensa.",
+        "Kaput! {player} ha preso 10 o più punti. In attesa della ricompensa.",
       "server.kaputRemove":
         "{player} ha fatto Kaput e ha tolto 11 punti.",
       "server.kaputGive":
@@ -653,7 +653,7 @@
       "game.openAkuza": "Declared akuža",
       "game.kaputChoiceTitle": "Kaput! Choose your reward",
       "game.kaputChoicePrompt":
-        "You took all 11 points. Choose your reward.",
+        "You took 10 or more points. Choose your reward.",
       "game.kaputWaiting": "Waiting for {player} to choose a Kaput reward.",
       "game.kaputRemove": "Remove 11 from my score",
       "game.kaputGiveOthers": "Give everyone else 10 points",
@@ -816,7 +816,7 @@
       "server.seresPlayWrong":
         "{caller} calls Sereš on {accused}! The call was wrong, so {caller} receives {points} points. The hand is over.",
       "server.kaputPending":
-        "Kaput! {player} took all 11 points. Waiting for the reward choice.",
+        "Kaput! {player} took 10 or more points. Waiting for the reward choice.",
       "server.kaputRemove":
         "{player} made Kaput and removed 11 points.",
       "server.kaputGive":
@@ -1236,7 +1236,7 @@
       ["caller", "accused", "ignored", "points"],
     ],
     [
-      /^Kaput! (.+) je uzeo svih 11 bodova\. Čeka se izbor nagrade\.$/,
+      /^Kaput! (.+) je uzeo 10 ili više bodova\. Čeka se izbor nagrade\.$/,
       "server.kaputPending",
       ["player"],
     ],

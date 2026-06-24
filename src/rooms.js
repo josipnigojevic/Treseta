@@ -44,6 +44,8 @@ const RESERVATION_MS = 90_000;
 const ROOM_IDLE_MS = 30 * 60_000;
 const SERES_HAND_POSITIVE_THIRDS = 11 * 3;
 const SERES_PENALTY_THIRDS = SERES_HAND_POSITIVE_THIRDS;
+const SERES_KAPUT_MIN_THIRDS = 10 * 3;
+const SERES_KAPUT_OTHER_LIMIT_THIRDS = 3;
 const MATCH_LIMIT_THIRDS = 41 * 3;
 
 function makeToken() {
@@ -415,13 +417,13 @@ class Room {
 
   detectKaputSeat() {
     const scores = this.game.currentHandPositiveThirds;
-    const kaputSeat = scores.findIndex(
-      (thirds) => thirds >= SERES_HAND_POSITIVE_THIRDS
-    );
+    const kaputSeat = scores.findIndex((thirds) => thirds >= SERES_KAPUT_MIN_THIRDS);
     if (kaputSeat === -1) return null;
-    return scores.every((thirds, seat) => seat === kaputSeat || thirds === 0)
-      ? kaputSeat
-      : null;
+    const otherThirds = scores.reduce(
+      (sum, thirds, seat) => (seat === kaputSeat ? sum : sum + Math.max(0, thirds)),
+      0
+    );
+    return otherThirds < SERES_KAPUT_OTHER_LIMIT_THIRDS ? kaputSeat : null;
   }
 
   rollbackUnpunishedSeresHandPoints(punishedSeat) {
@@ -430,6 +432,24 @@ class Room {
       this.game.playerScoresThirds[seat] -= thirds;
       this.game.currentHandPositiveThirds[seat] = 0;
     });
+  }
+
+  collectSeresPartialPoints(lastTrickWinnerSeat) {
+    const partialThirds = this.game.currentHandPositiveThirds.reduce(
+      (sum, thirds, seat) => {
+        if (seat === lastTrickWinnerSeat || thirds <= 0) return sum;
+        const remainder = thirds % 3;
+        if (!remainder) return sum;
+        this.game.playerScoresThirds[seat] -= remainder;
+        this.game.currentHandPositiveThirds[seat] -= remainder;
+        return sum + remainder;
+      },
+      0
+    );
+    if (partialThirds > 0) {
+      return this.addSeresPositiveHandThirds(lastTrickWinnerSeat, partialThirds);
+    }
+    return 0;
   }
 
   dealNextHandInternal(firstHand = false, previousMessage = "") {
@@ -990,7 +1010,7 @@ class Room {
     const positiveThirds =
       this.game.currentHandPositiveThirds[kaputSeat] || SERES_HAND_POSITIVE_THIRDS;
     this.game.playerScoresThirds[kaputSeat] -= positiveThirds;
-    const message = `Kaput! ${kaputPlayer.nickname} je uzeo svih 11 bodova. Čeka se izbor nagrade.`;
+    const message = `Kaput! ${kaputPlayer.nickname} je uzeo 10 ili više bodova. Čeka se izbor nagrade.`;
     this.game.status = "kaput";
     this.game.trick = [];
     this.game.pendingTrick = null;
@@ -1221,6 +1241,7 @@ class Room {
     this.game.leaderSeat = winnerSeat;
 
     if (handFinished) {
+      this.collectSeresPartialPoints(winnerSeat);
       const kaputSeat = this.detectKaputSeat();
       if (kaputSeat !== null) {
         return this.startKaputDecision(kaputSeat);

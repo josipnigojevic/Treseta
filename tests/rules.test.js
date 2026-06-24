@@ -721,6 +721,72 @@ test("Kaput is detected on a natural hand and remove-11 reward skips normal poin
   assert.strictEqual(room.game.lastHandResult.option, "remove_11");
 });
 
+function prepareThresholdKaputFinalTrick(room, tokens, otherThirds) {
+  passWholeAkuzaPhase(room, tokens);
+  room.game.playerScoresThirds = [29, otherThirds, 0];
+  room.game.handStartScoresThirds = [0, 0, 0];
+  room.game.currentHandPositiveThirds = [29, otherThirds, 0];
+  room.game.turnSeat = 0;
+  room.game.leaderSeat = 0;
+  room.game.trick = [];
+  room.game.pendingTrick = null;
+  room.game.hands = [
+    [card("cups", "7")],
+    [card("cups", "6")],
+    [card("cups", "5")],
+  ];
+  room.playCard(tokens[0], "cups-7");
+  room.playCard(tokens[1], "cups-6");
+  room.playCard(tokens[2], "cups-5");
+  return room.resolvePendingTrick();
+}
+
+test("Kaput is detected when one player has 10+ and everyone else has less than 1", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  const result = prepareThresholdKaputFinalTrick(room, tokens, 2);
+  assert.strictEqual(result.kaput, true);
+  assert.strictEqual(room.game.status, "kaput");
+  assert.strictEqual(room.game.kaputDecision.kaputSeat, 0);
+  assert.strictEqual(room.game.kaputDecision.positiveThirds, 33);
+  assert.deepStrictEqual(room.game.playerScoresThirds, [0, 0, 0]);
+});
+
+test("last trick winner collects partial points from other players", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  passWholeAkuzaPhase(room, tokens);
+  room.game.playerScoresThirds = [0, 2, 1];
+  room.game.handStartScoresThirds = [0, 0, 0];
+  room.game.currentHandPositiveThirds = [0, 2, 1];
+  room.game.turnSeat = 0;
+  room.game.leaderSeat = 0;
+  room.game.trick = [];
+  room.game.pendingTrick = null;
+  room.game.hands = [
+    [card("cups", "7")],
+    [card("cups", "6")],
+    [card("cups", "5")],
+  ];
+
+  room.playCard(tokens[0], "cups-7");
+  room.playCard(tokens[1], "cups-6");
+  room.playCard(tokens[2], "cups-5");
+  room.resolvePendingTrick();
+
+  assert.deepStrictEqual(room.game.lastHandResult.scoreChanges, [
+    { seat: 0, beforeThirds: 0, afterThirds: 6 },
+    { seat: 1, beforeThirds: 0, afterThirds: 0 },
+    { seat: 2, beforeThirds: 0, afterThirds: 0 },
+  ]);
+});
+
+test("Kaput is not detected when other players have 1 point after partial pickup", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  const result = prepareThresholdKaputFinalTrick(room, tokens, 3);
+  assert.strictEqual(result.kaput, undefined);
+  assert.strictEqual(room.game.status, "akuza");
+  assert.strictEqual(room.game.lastHandResult.type, "normal");
+});
+
 test("Kaput can give every other player 10 points and then checks 41", () => {
   const { room, tokens } = makeSeresRoom(3);
   prepareKaputFinalTrick(room, tokens, [0, MATCH_LIMIT_THIRDS - 30, 0]);
