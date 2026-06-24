@@ -916,7 +916,7 @@ test("Kaput is detected when one player has 10+ and everyone else has less than 
   assert.strictEqual(result.kaput, true);
   assert.strictEqual(room.game.status, "kaput");
   assert.strictEqual(room.game.kaputDecision.kaputSeat, 0);
-  assert.strictEqual(room.game.kaputDecision.positiveThirds, 33);
+  assert.strictEqual(room.game.kaputDecision.positiveThirds, 30);
   assert.deepStrictEqual(room.game.playerScoresThirds, [0, 0, 0]);
 });
 
@@ -946,6 +946,32 @@ test("last trick winner collects partial points from other players", () => {
     { seat: 1, beforeThirds: 0, afterThirds: 0 },
     { seat: 2, beforeThirds: 0, afterThirds: 0 },
   ]);
+});
+
+test("last trick winner does not keep loose thirds below a full point", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  passWholeAkuzaPhase(room, tokens);
+  room.game.playerScoresThirds = [31, -12, 0];
+  room.game.handStartScoresThirds = [0, -12, 0];
+  room.game.currentHandPositiveThirds = [31, 0, 0];
+  room.game.turnSeat = 1;
+  room.game.leaderSeat = 1;
+  room.game.trick = [];
+  room.game.pendingTrick = null;
+  room.game.hands = [
+    [card("cups", "king")],
+    [card("cups", "2")],
+    [card("cups", "4")],
+  ];
+
+  room.playCard(tokens[1], "cups-2");
+  room.playCard(tokens[2], "cups-4");
+  room.playCard(tokens[0], "cups-king");
+  room.resolvePendingTrick();
+
+  assert.strictEqual(room.game.lastHandResult.type, "normal");
+  assert.strictEqual(room.game.playerScoresThirds[0], 30);
+  assert.strictEqual(room.game.playerScoresThirds[1], -9);
 });
 
 test("Kaput is not detected when other players have 1 point after partial pickup", () => {

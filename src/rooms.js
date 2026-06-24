@@ -435,19 +435,21 @@ class Room {
   }
 
   collectSeresPartialPoints(lastTrickWinnerSeat) {
-    const partialThirds = this.game.currentHandPositiveThirds.reduce(
-      (sum, thirds, seat) => {
-        if (seat === lastTrickWinnerSeat || thirds <= 0) return sum;
-        const remainder = thirds % 3;
-        if (!remainder) return sum;
-        this.game.playerScoresThirds[seat] -= remainder;
-        this.game.currentHandPositiveThirds[seat] -= remainder;
-        return sum + remainder;
-      },
-      0
-    );
-    if (partialThirds > 0) {
-      return this.addSeresPositiveHandThirds(lastTrickWinnerSeat, partialThirds);
+    let otherPartialThirds = 0;
+    this.game.currentHandPositiveThirds.forEach((thirds, seat) => {
+      if (thirds <= 0) return;
+      const remainder = thirds % 3;
+      if (!remainder) return;
+      this.game.playerScoresThirds[seat] -= remainder;
+      this.game.currentHandPositiveThirds[seat] -= remainder;
+      if (seat !== lastTrickWinnerSeat) otherPartialThirds += remainder;
+    });
+    const awardedThirds = Math.floor(otherPartialThirds / 3) * 3;
+    if (awardedThirds > 0) {
+      return this.addSeresPositiveHandThirds(
+        lastTrickWinnerSeat,
+        awardedThirds
+      );
     }
     return 0;
   }
