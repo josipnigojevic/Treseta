@@ -3,6 +3,7 @@ const {
   createDeck,
   shuffle,
   deal,
+  dealClassicTreseta,
   dealSeresUManje,
 } = require("../src/rules/cards");
 const {
@@ -12,6 +13,8 @@ const {
   scoreHand,
   detectAkuza,
   handHasAkuzaClaim,
+  maxAkuzaValue,
+  validAkuzaTotals,
 } = require("../src/rules/treseta");
 const { Room, MATCH_LIMIT_THIRDS } = require("../src/rooms");
 
@@ -56,6 +59,35 @@ test("Sereš u Manje deals 13/10/8 cards and hides one discard for three players
   assert.strictEqual(four.discard, null);
   assert.deepStrictEqual(five.hands.map((hand) => hand.length), [8, 8, 8, 8, 8]);
   assert.strictEqual(five.discard, null);
+});
+
+test("Classic Trešeta deals 2-player stock and 3-player hidden random four", () => {
+  const deck = createDeck();
+  const two = dealClassicTreseta(deck, 2);
+  assert.deepStrictEqual(two.hands.map((hand) => hand.length), [10, 10]);
+  assert.strictEqual(two.stock.length, 20);
+  assert.strictEqual(new Set([...two.hands.flat(), ...two.stock].map((item) => item.id)).size, 40);
+
+  const three = dealClassicTreseta(deck, 3);
+  assert.deepStrictEqual(three.hands.map((hand) => hand.length), [13, 13, 13]);
+  assert.ok(three.discard);
+  assert.strictEqual(three.discard.rank, "4");
+  assert.strictEqual(three.hands.flat().some((item) => item.id === three.discard.id), false);
+  assert.strictEqual(
+    new Set([...three.hands.flat(), three.discard].map((item) => item.id)).size,
+    40
+  );
+});
+
+test("Sereš 3-player deal mode can remove all fours and deal 12 cards", () => {
+  const dealt = dealSeresUManje(createDeck(), 3, "remove_all_fours_12");
+  assert.deepStrictEqual(dealt.hands.map((hand) => hand.length), [12, 12, 12]);
+  assert.strictEqual(dealt.discard, null);
+  assert.deepStrictEqual(
+    dealt.removedCards.map((item) => item.id).sort(),
+    ["clubs-4", "coins-4", "cups-4", "swords-4"]
+  );
+  assert.strictEqual(dealt.hands.flat().some((item) => item.rank === "4"), false);
 });
 
 test("follow-suit validation only permits the led suit when held", () => {
@@ -140,7 +172,7 @@ test("a claimed akuža can be validated later without exposing the hand", () => 
   assert.strictEqual(handHasAkuzaClaim(hand, "rank-ace-3"), false);
 });
 
-function makeSeresRoom(playerCount = 4, ranked = false) {
+function makeSeresRoom(playerCount = 4, ranked = false, extraSettings = {}) {
   const accounts = Array.from({ length: playerCount }, (_unused, seat) => ({
     id: `account-${seat}`,
     username: `Igrac${seat}`,
@@ -149,7 +181,7 @@ function makeSeresRoom(playerCount = 4, ranked = false) {
     "SERES",
     accounts[0].username,
     "socket-0",
-    { mode: "seres_u_manje", playerCount, ranked },
+    { mode: "seres_u_manje", playerCount, ranked, ...extraSettings },
     ranked ? accounts[0] : null
   );
   const tokens = [room.players[0].token];
@@ -162,6 +194,22 @@ function makeSeresRoom(playerCount = 4, ranked = false) {
         false,
         ranked ? accounts[seat] : null
       ).token
+    );
+  }
+  room.startMatch(tokens[0]);
+  return { room, tokens };
+}
+
+function makeClassicRoom(playerCount = 4, extraSettings = {}) {
+  const room = new Room("CLASS", "Igrac0", "classic-socket-0", {
+    mode: "classic",
+    playerCount,
+    ...extraSettings,
+  });
+  const tokens = [room.players[0].token];
+  for (let seat = 1; seat < playerCount; seat += 1) {
+    tokens.push(
+      room.join(`Igrac${seat}`, `classic-socket-${seat}`, "", false).token
     );
   }
   room.startMatch(tokens[0]);
@@ -203,6 +251,30 @@ test("new mode is separate, supports 3–5 players, and starts with an akuža ph
     const publicState = room.publicState();
     assert.strictEqual(Object.prototype.hasOwnProperty.call(publicState.game, "discard"), false);
   });
+});
+
+test("Sereš 3-player room defaults to hidden discard but can remove all fours", () => {
+  const defaultRoom = makeSeresRoom(3).room;
+  assert.strictEqual(
+    defaultRoom.settings.seresThreePlayerDealMode,
+    "single_hidden_discard_13"
+  );
+  assert.deepStrictEqual(defaultRoom.game.hands.map((hand) => hand.length), [13, 13, 13]);
+  assert.strictEqual(defaultRoom.rules().totalTricks, 13);
+
+  const noFoursRoom = makeSeresRoom(3, false, {
+    seresThreePlayerDealMode: "remove_all_fours_12",
+  }).room;
+  assert.strictEqual(
+    noFoursRoom.settings.seresThreePlayerDealMode,
+    "remove_all_fours_12"
+  );
+  assert.deepStrictEqual(noFoursRoom.game.hands.map((hand) => hand.length), [12, 12, 12]);
+  assert.strictEqual(noFoursRoom.rules().totalTricks, 12);
+  assert.deepStrictEqual(
+    noFoursRoom.game.removedCards.map((item) => item.id).sort(),
+    ["clubs-4", "coins-4", "cups-4", "swords-4"]
+  );
 });
 
 test("Sereš response time is configurable from 5 to 60 seconds", () => {
@@ -294,6 +366,59 @@ test("akuža is turn-based, may be fake, waits for everyone, and subtracts point
   assert.strictEqual(room.game.playerScoresThirds[declarerSeat], -9);
   assert.strictEqual(room.game.akuzaPhase.pendingDeclaration, null);
   assert.notStrictEqual(room.game.akuzaPhase.currentPlayerSeat, declarerSeat);
+});
+
+test("Sereš specific akuža can combine multiple claims into -6", () => {
+  const { room, tokens } = makeSeresRoom(3, false, {
+    akuzaDeclarationMode: "specific",
+  });
+  const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.declareAkuza(tokens[declarerSeat], {
+    claimIds: ["rank-ace-3", "napolitana-coins"],
+  });
+  const pending = room.game.akuzaPhase.pendingDeclaration;
+  assert.strictEqual(pending.points, 6);
+  assert.deepStrictEqual(pending.claimIds, ["rank-ace-3", "napolitana-coins"]);
+  continueWholeAkuzaChallenge(room, tokens);
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], -18);
+});
+
+test("Sereš value-only akuža stores only the value and validates hand coverage", () => {
+  const { room, tokens } = makeSeresRoom(3, false, {
+    akuzaDeclarationMode: "value_only",
+  });
+  const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.game.hands[declarerSeat] = [
+    card("coins", "ace"),
+    card("coins", "2"),
+    card("coins", "3"),
+    card("cups", "ace"),
+    card("cups", "2"),
+    card("cups", "3"),
+  ];
+  assert.strictEqual(maxAkuzaValue(room.game.hands[declarerSeat]), 6);
+  room.declareAkuza(tokens[declarerSeat], { value: 6 });
+  const pending = room.game.akuzaPhase.pendingDeclaration;
+  assert.strictEqual(pending.declarationMode, "value_only");
+  assert.deepStrictEqual(pending.claimIds, []);
+  const callerSeat = (declarerSeat + 1) % 3;
+  room.callSeres(tokens[callerSeat], "akuza");
+  assert.strictEqual(room.game.playerScoresThirds[callerSeat], 33);
+  assert.strictEqual(room.game.lastHandResult.accusedWasLying, false);
+});
+
+test("Sereš value-only akuža accepts -9 as a bluff and punishes it when challenged", () => {
+  const { room, tokens } = makeSeresRoom(3, false, {
+    akuzaDeclarationMode: "value_only",
+  });
+  const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.game.hands[declarerSeat] = [card("cups", "4"), card("coins", "5")];
+  assert.ok(validAkuzaTotals().includes(9));
+  room.declareAkuza(tokens[declarerSeat], { value: 9 });
+  const callerSeat = (declarerSeat + 1) % 3;
+  room.callSeres(tokens[callerSeat], "akuza");
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], 33);
+  assert.strictEqual(room.game.lastHandResult.accusedWasLying, true);
 });
 
 test("correct Sereš on a fake akuža punishes the bluffer and starts a new hand", () => {
@@ -484,6 +609,72 @@ test("reaching 41 from resolved trick points ends the match immediately", () => 
   room.resolvePendingTrick();
   assert.strictEqual(room.game.status, "matchEnd");
   assert.strictEqual(room.game.loserSeat, 0);
+});
+
+test("Classic 2-player draws from stock after each trick with winner first", () => {
+  const { room, tokens } = makeClassicRoom(2);
+  room.game.turnSeat = 0;
+  room.game.leaderSeat = 0;
+  room.game.trick = [];
+  room.game.pendingTrick = null;
+  room.game.hands = [[card("cups", "3")], [card("cups", "4")]];
+  room.game.stock = [card("coins", "ace"), card("swords", "2")];
+  room.playCard(tokens[0], "cups-3");
+  room.playCard(tokens[1], "cups-4");
+  const result = room.resolvePendingTrick();
+  assert.strictEqual(result.handFinished, false);
+  assert.strictEqual(room.game.stock.length, 0);
+  assert.deepStrictEqual(
+    room.game.drawReveals.map((reveal) => `${reveal.seat}:${reveal.card.id}`),
+    ["0:coins-ace", "1:swords-2"]
+  );
+  assert.deepStrictEqual(room.game.hands.map((hand) => hand.map((item) => item.id)), [
+    ["coins-ace"],
+    ["swords-2"],
+  ]);
+  assert.strictEqual(room.game.turnSeat, 0);
+});
+
+test("Classic 2-player hand continues after stock is empty and ends after 20 tricks", () => {
+  const { room, tokens } = makeClassicRoom(2);
+  room.game.turnSeat = 0;
+  room.game.leaderSeat = 0;
+  room.game.trick = [];
+  room.game.pendingTrick = null;
+  room.game.hands = [[card("cups", "3")], [card("cups", "4")]];
+  room.game.stock = [];
+  room.game.trickNumber = 20;
+  room.playCard(tokens[0], "cups-3");
+  room.playCard(tokens[1], "cups-4");
+  const result = room.resolvePendingTrick();
+  assert.strictEqual(result.handFinished, true);
+  assert.ok(["handEnd", "matchEnd"].includes(room.game.status));
+});
+
+test("Classic 3-player is free-for-all with 13 cards and hidden removed four", () => {
+  const { room } = makeClassicRoom(3);
+  assert.strictEqual(room.settings.teams, false);
+  assert.deepStrictEqual(room.game.hands.map((hand) => hand.length), [13, 13, 13]);
+  assert.strictEqual(room.game.removedCards.length, 1);
+  assert.strictEqual(room.game.removedCards[0].rank, "4");
+  assert.deepStrictEqual(room.publicState().game.removedCards, []);
+});
+
+test("Classic 3-player free-for-all scores seats and can end the match", () => {
+  const { room, tokens } = makeClassicRoom(3);
+  room.game.playerScoresThirds[0] = MATCH_LIMIT_THIRDS - 3;
+  room.game.turnSeat = 0;
+  room.game.leaderSeat = 0;
+  room.game.trick = [];
+  room.game.pendingTrick = null;
+  room.game.hands = [[card("cups", "3")], [card("cups", "4")], [card("cups", "5")]];
+  room.playCard(tokens[0], "cups-3");
+  room.playCard(tokens[1], "cups-4");
+  room.playCard(tokens[2], "cups-5");
+  room.resolvePendingTrick();
+  assert.strictEqual(room.game.status, "matchEnd");
+  assert.strictEqual(room.game.winnerSeat, 0);
+  assert.strictEqual(room.game.handBreakdown[0].seat, 0);
 });
 
 test("serialized room state reveals only the requesting player's hand", () => {

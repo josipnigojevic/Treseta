@@ -420,6 +420,78 @@ class AccountStore {
   }
 
   async recordClassicMatch(client, summary, accountById, completedAt) {
+    const isFreeForAll =
+      summary.winnerSeat !== undefined ||
+      summary.settings?.teams === false ||
+      summary.settings?.playerCount === 3;
+    if (isFreeForAll) {
+      if (summary.ranked) {
+        throw new Error("Rangirana klasična Trešeta trenutno je dostupna samo za 4 igrača.");
+      }
+      const standingsBySeat = new Map(
+        (summary.standings || []).map((standing) => [standing.seat, standing])
+      );
+      const participants = summary.players.map((player) => {
+        const account = player.accountId ? accountById.get(player.accountId) : null;
+        const standing = standingsBySeat.get(player.seat);
+        const won = player.seat === summary.winnerSeat;
+        if (account) {
+          account[won ? "casualWins" : "casualLosses"] += 1;
+        }
+        return {
+          account,
+          accountId: account?.id || null,
+          username: account?.username || player.nickname,
+          nickname: player.nickname,
+          seat: player.seat,
+          team: null,
+          won,
+          rank: standing?.rank || (won ? 1 : summary.players.length),
+          scoreThirds:
+            standing?.scoreThirds ?? summary.playerScoresThirds?.[player.seat] ?? null,
+        };
+      });
+      await this.updateAccounts(
+        client,
+        participants
+          .filter((participant) => participant.account)
+          .map((participant) => participant.account)
+      );
+      if (this.transactionHook) {
+        await this.transactionHook("afterAccountUpdates", { client, summary });
+      }
+      const players = participants.map((participant) => ({
+        accountId: participant.accountId,
+        username: participant.username,
+        nickname: participant.nickname,
+        seat: participant.seat,
+        team: null,
+        won: participant.won,
+        rank: participant.rank,
+        scoreThirds: participant.scoreThirds,
+      }));
+      await this.insertMatchPlayers(client, summary.matchId, players);
+      return {
+        match: {
+          id: summary.matchId,
+          roomCode: summary.roomCode,
+          mode: summary.mode || "classic",
+          rankingKey: summary.rankingKey || null,
+          ranked: false,
+          startedAt: summary.startedAt,
+          completedAt: completedAt.getTime(),
+          winnerSeat: summary.winnerSeat,
+          standings: summary.standings || [],
+          playerScoresThirds: [...(summary.playerScoresThirds || [])],
+          handCount: summary.handCount,
+          settings: { ...summary.settings },
+          players,
+        },
+        ratingByAccount: {},
+        alreadyRecorded: false,
+      };
+    }
+
     const participants = summary.players.map((player) => {
       const account = player.accountId ? accountById.get(player.accountId) : null;
       return {

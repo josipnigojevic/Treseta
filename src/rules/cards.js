@@ -47,10 +47,73 @@ function deal(deck, playerCount = 4) {
   return hands;
 }
 
-function dealSeresUManje(deck, playerCount) {
+function removeCards(deck, predicate) {
+  const removed = [];
+  const remaining = [];
+  deck.forEach((card) => {
+    if (predicate(card)) removed.push(card);
+    else remaining.push(card);
+  });
+  return { remaining, removed };
+}
+
+function dealClassicTreseta(deck, playerCount = 4) {
+  if (playerCount === 2) {
+    const initialCards = deck.slice(0, 20);
+    return {
+      hands: deal(initialCards, 2),
+      stock: deck.slice(20),
+      discard: null,
+      removedCards: [],
+      removedCardsPublic: false,
+    };
+  }
+
+  if (playerCount === 3) {
+    const removedIndex = deck.findIndex((card) => card.rank === "4");
+    if (removedIndex === -1) throw new Error("Deck has no four to remove.");
+    const discard = deck[removedIndex];
+    const cardsToDeal = deck.filter((_card, index) => index !== removedIndex);
+    return {
+      hands: deal(cardsToDeal, 3),
+      stock: [],
+      discard,
+      removedCards: [discard],
+      removedCardsPublic: false,
+    };
+  }
+
+  if (playerCount === 4) {
+    return {
+      hands: deal(deck, 4),
+      stock: [],
+      discard: null,
+      removedCards: [],
+      removedCardsPublic: false,
+    };
+  }
+
+  throw new Error("Classic Trešeta supports 2 to 4 players.");
+}
+
+function dealSeresUManje(deck, playerCount, dealMode = "single_hidden_discard_13") {
   if (![3, 4, 5].includes(playerCount)) {
     throw new Error("Trešeta Sereš u Manje supports 3 to 5 players.");
   }
+  if (playerCount === 3 && dealMode === "remove_all_fours_12") {
+    const { remaining, removed } = removeCards(deck, (card) => card.rank === "4");
+    const hands = deal(remaining, 3);
+    if (removed.length !== 4 || hands.some((hand) => hand.length !== 12)) {
+      throw new Error("Unexpected hand size while dealing Sereš without fours.");
+    }
+    return {
+      hands,
+      discard: null,
+      removedCards: removed,
+      removedCardsPublic: true,
+    };
+  }
+
   const cardsPerPlayer = { 3: 13, 4: 10, 5: 8 }[playerCount];
   const discard = playerCount === 3 ? deck[0] : null;
   const cardsToDeal = playerCount === 3 ? deck.slice(1) : deck;
@@ -61,7 +124,20 @@ function dealSeresUManje(deck, playerCount) {
   if (hands.some((hand) => hand.length !== cardsPerPlayer)) {
     throw new Error("Unexpected hand size while dealing.");
   }
-  return { hands, discard };
+  return {
+    hands,
+    discard,
+    removedCards: discard ? [discard] : [],
+    removedCardsPublic: false,
+  };
 }
 
-module.exports = { SUITS, RANKS, createDeck, shuffle, deal, dealSeresUManje };
+module.exports = {
+  SUITS,
+  RANKS,
+  createDeck,
+  shuffle,
+  deal,
+  dealClassicTreseta,
+  dealSeresUManje,
+};

@@ -374,7 +374,10 @@ io.on("connection", (socket) => {
 
   socket.on("declareAkuza", (payload = {}, callback) =>
     withSession(socket, callback, (room, session) => {
-      const result = room.declareAkuza(session.token, String(payload.claimId || ""));
+      const result = room.declareAkuza(
+        session.token,
+        room.isSeresMode ? payload : String(payload.claimId || "")
+      );
       console.log(
         `[room ${room.code}] ${result.player.nickname} declared akuza (${result.points})`
       );

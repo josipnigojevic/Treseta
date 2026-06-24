@@ -66,6 +66,15 @@
               <p id="modeDescription" class="mode-description" data-i18n="mode.classicDescription">
                 Klasična Trešeta za četiri igrača u dvije ekipe.
               </p>
+              <label>
+                <span data-i18n="lobby.playerCount">Broj igrača</span>
+                <select id="playerCountSetting">
+                  <option value="2" data-i18n="players.2">2 igrača</option>
+                  <option value="3" data-i18n="players.3">3 igrača</option>
+                  <option value="4" selected data-i18n="players.4">4 igrača</option>
+                  <option value="5" data-i18n="players.5">5 igrača</option>
+                </select>
+              </label>
               <div id="seresSetup" class="seres-setup hidden">
                 <label>
                   <span data-i18n="lobby.matchType">Vrsta partije</span>
@@ -75,12 +84,20 @@
                   </select>
                 </label>
                 <label>
-                  <span data-i18n="lobby.playerCount">Broj igrača</span>
-                  <select id="playerCountSetting">
-                    <option value="3" data-i18n="players.3">3 igrača</option>
-                    <option value="4" selected data-i18n="players.4">4 igrača</option>
-                    <option value="5" data-i18n="players.5">5 igrača</option>
+                  <span data-i18n="lobby.akuzaDeclaration">Akuža declaration</span>
+                  <select id="akuzaDeclarationModeSetting">
+                    <option value="specific" data-i18n="lobby.akuzaSpecific">Specific</option>
+                    <option value="value_only" data-i18n="lobby.akuzaValueOnly">Value only</option>
                   </select>
+                  <small id="akuzaDeclarationModeHelp" class="field-help"></small>
+                </label>
+                <label id="seresThreePlayerDealField" class="hidden">
+                  <span data-i18n="lobby.seresDealStyle">3-player deal style</span>
+                  <select id="seresThreePlayerDealModeSetting">
+                    <option value="single_hidden_discard_13" data-i18n="lobby.seresDeal13">13 cards + 1 hidden discard</option>
+                    <option value="remove_all_fours_12" data-i18n="lobby.seresDeal12">12 cards + remove all 4s</option>
+                  </select>
+                  <small class="field-help" data-i18n="lobby.seresDealHelp">13 cards removes one unknown card; 12 cards removes all four 4s.</small>
                 </label>
                 <label class="challenge-time-field">
                   <span data-i18n="lobby.responseTime">Vrijeme za Nastavi / Sereš</span>
@@ -254,8 +271,10 @@
           <div>
             <span data-i18n="game.yourAkuzaTurn">Vi ste na redu za akužu</span>
             <strong data-i18n="game.akuzaBluff">Možete prijaviti stvarnu akužu ili blefirati.</strong>
+            <small id="seresAkuzaTotal" class="field-help"></small>
           </div>
-          <select id="akuzaClaimSelect"></select>
+          <select id="akuzaClaimSelect" multiple></select>
+          <select id="akuzaValueSelect" class="hidden"></select>
           <button id="seresDeclareButton" class="button gold" data-i18n="game.declareAkuza">Prijavi akužu</button>
           <button id="passAkuzaButton" class="button gold" data-i18n="game.pass">Nastavi / Preskoči</button>
         </div>

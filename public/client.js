@@ -27,6 +27,10 @@ const elements = {
   seresSetup: $("#seresSetup"),
   seresMatchType: $("#seresMatchType"),
   playerCountSetting: $("#playerCountSetting"),
+  akuzaDeclarationModeSetting: $("#akuzaDeclarationModeSetting"),
+  akuzaDeclarationModeHelp: $("#akuzaDeclarationModeHelp"),
+  seresThreePlayerDealField: $("#seresThreePlayerDealField"),
+  seresThreePlayerDealModeSetting: $("#seresThreePlayerDealModeSetting"),
   challengeSecondsSetting: $("#challengeSecondsSetting"),
   challengeSecondsValue: $("#challengeSecondsValue"),
   rankedNote: $("#rankedNote"),
@@ -47,6 +51,8 @@ const elements = {
   akuzaDescription: $("#akuzaDescription"),
   seresAkuzaTurnBar: $("#seresAkuzaTurnBar"),
   akuzaClaimSelect: $("#akuzaClaimSelect"),
+  akuzaValueSelect: $("#akuzaValueSelect"),
+  seresAkuzaTotal: $("#seresAkuzaTotal"),
   akuzaResponseBar: $("#akuzaResponseBar"),
   pendingAkuzaDescription: $("#pendingAkuzaDescription"),
   seresTrickBar: $("#seresTrickBar"),
@@ -100,10 +106,18 @@ function selectedMode() {
   return elements.gameModeSetting.value;
 }
 
+function selectedPlayerCount() {
+  return Number(elements.playerCountSetting.value);
+}
+
 function isSeresMode(state = currentState) {
   return state
     ? state.settings.mode === "seres_u_manje"
     : selectedMode() === "seres_u_manje";
+}
+
+function isFreeForAll(state = currentState) {
+  return Boolean(state?.rules?.freeForAll);
 }
 
 function selectedRanked() {
@@ -126,6 +140,16 @@ function challengeSecondsLeft(deadlineAt) {
   return Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000));
 }
 
+function describeAkuzaDeclaration(declaration) {
+  if (!declaration) return "";
+  const value = `−${declaration.points}`;
+  if (declaration.declarationMode === "value_only") return value;
+  const label = declaration.claims?.length
+    ? declaration.claims.map((claim) => akuzaLabel(claim)).join(" + ")
+    : akuzaLabel({ id: declaration.claimId, label: declaration.label });
+  return `${label} (${value})`;
+}
+
 function updateChallengeCountdown() {
   if (!currentState || !isSeresMode(currentState)) return;
   const pending = currentState.game.akuzaPhase?.pendingDeclaration;
@@ -133,7 +157,7 @@ function updateChallengeCountdown() {
     const declarer = currentState.players[pending.declarerSeat];
     elements.pendingAkuzaDescription.textContent = t("challenge.akuza", {
       player: declarer?.nickname || t("game.playerFallback"),
-      claim: akuzaLabel({ id: pending.claimId, label: pending.label }),
+      claim: describeAkuzaDeclaration(pending),
       seconds: challengeSecondsLeft(pending.deadlineAt),
     });
   }
@@ -384,22 +408,54 @@ async function openProfile() {
   }
 }
 
+function updatePlayerCountOptions() {
+  const seres = isSeresMode();
+  const allowed = seres ? [3, 4, 5] : [2, 3, 4];
+  const current = selectedPlayerCount();
+  Array.from(elements.playerCountSetting.options).forEach((option) => {
+    const value = Number(option.value);
+    const available = allowed.includes(value);
+    option.hidden = !available;
+    option.disabled = !available;
+  });
+  if (!allowed.includes(current)) {
+    elements.playerCountSetting.value = String(seres ? 4 : 4);
+  }
+}
+
 function applyRankedSetting() {
+  updatePlayerCountOptions();
   const seres = isSeresMode();
   const ranked = selectedRanked();
+  const playerCount = selectedPlayerCount();
   elements.seresSetup.classList.toggle("hidden", !seres);
+  elements.seresThreePlayerDealField.classList.toggle(
+    "hidden",
+    !(seres && playerCount === 3)
+  );
+  elements.akuzaDeclarationModeHelp.textContent =
+    elements.akuzaDeclarationModeSetting.value === "value_only"
+      ? t("lobby.akuzaValueOnlyHelp")
+      : t("lobby.akuzaSpecificHelp");
   elements.rankedSetting.closest(".switch-label").classList.toggle("hidden", seres);
   elements.akuzaSetting.closest(".switch-label").classList.toggle("hidden", seres);
   elements.signalsSetting.closest(".switch-label").classList.toggle("hidden", seres);
   elements.modeDescription.textContent = seres
     ? t("mode.seresDescription")
     : t("mode.classicDescription");
+  if (!seres && playerCount !== 4 && elements.rankedSetting.checked) {
+    elements.rankedSetting.checked = false;
+    showToast(t("mode.classicRankedFourOnly"));
+  }
+  elements.rankedSetting.disabled = !seres && playerCount !== 4;
   elements.rankedNote.classList.toggle("hidden", !ranked);
   elements.rankedNote.textContent = seres
     ? t("mode.seresRankedNote", {
-        players: count("player", Number(elements.playerCountSetting.value)),
+        players: count("player", playerCount),
       })
-    : t("mode.classicRankedNote");
+    : playerCount === 4
+    ? t("mode.classicRankedNote")
+    : t("mode.classicRankedFourOnly");
   if (ranked) {
     elements.akuzaSetting.checked = true;
     elements.signalsSetting.checked = false;
@@ -450,10 +506,17 @@ function createRoom() {
       nickname: elements.nickname.value,
       settings: {
         mode: selectedMode(),
-        playerCount: isSeresMode() ? Number(elements.playerCountSetting.value) : 4,
+        playerCount: selectedPlayerCount(),
         challengeSeconds: isSeresMode()
           ? Number(elements.challengeSecondsSetting.value)
           : undefined,
+        akuzaDeclarationMode: isSeresMode()
+          ? elements.akuzaDeclarationModeSetting.value
+          : undefined,
+        seresThreePlayerDealMode:
+          isSeresMode() && selectedPlayerCount() === 3
+            ? elements.seresThreePlayerDealModeSetting.value
+            : undefined,
         ranked: selectedRanked(),
         akuza: elements.akuzaSetting.checked,
         signals: elements.signalsSetting.checked,
@@ -508,6 +571,11 @@ function cardArtStyle(card) {
   const column = cardArtColumns[card.rank];
   const row = cardArtRows[card.suit];
   return `--art-x:${(column / 9) * 100}%;--art-y:${(row / 3) * 100}%`;
+}
+
+function cardText(card) {
+  if (!card) return "";
+  return `${card.label} ${t(`suit.${card.suit}`)}`;
 }
 
 function createCard(card, mode = "hand", isPlayable = false, isMyTurn = false) {
@@ -643,6 +711,15 @@ function renderHand(state) {
       : t("game.waitingAnswer");
   } else if (state.game.pendingTrick) {
     elements.handHint.textContent = t("game.trickResolving");
+  } else if (state.game.drawReveals?.length) {
+    elements.handHint.textContent = state.game.drawReveals
+      .map((reveal) =>
+        t("game.drawLog", {
+          player: state.players[reveal.seat]?.nickname || t("game.playerFallback"),
+          card: cardText(reveal.card),
+        })
+      )
+      .join(" · ");
   } else if (myTurn) elements.handHint.textContent = t("game.yourTurn");
   else if (state.game.status === "playing") {
     const player = state.players[state.game.turnSeat];
@@ -655,6 +732,16 @@ function renderHand(state) {
 function renderSignals(state) {
   elements.signalControls.classList.toggle("hidden", !state.me.canSignal);
   elements.signalFeed.innerHTML = "";
+  (state.game.drawLog || []).slice(-2).forEach((entry) => {
+    const bubble = document.createElement("div");
+    bubble.className = "signal-bubble";
+    const player = state.players[entry.seat];
+    bubble.textContent = t("game.drawLog", {
+      player: player?.nickname || t(`seat.${seatKeys[entry.seat]}`),
+      card: cardText(entry.card),
+    });
+    elements.signalFeed.appendChild(bubble);
+  });
   state.game.signals.slice(-2).forEach((signal) => {
     const bubble = document.createElement("div");
     bubble.className = "signal-bubble";
@@ -664,6 +751,27 @@ function renderSignals(state) {
     }: ${signalLabel(signal.type, signal.label)}`;
     elements.signalFeed.appendChild(bubble);
   });
+}
+
+function selectedAkuzaClaimIds() {
+  return Array.from(elements.akuzaClaimSelect.selectedOptions).map(
+    (option) => option.value
+  );
+}
+
+function updateSeresAkuzaTotal(state = currentState) {
+  if (!state?.me?.akuzaClaims?.length) return;
+  const specific = state.settings.akuzaDeclarationMode !== "value_only";
+  const total = specific
+    ? selectedAkuzaClaimIds().reduce((sum, claimId) => {
+        const claim = state.me.akuzaClaims.find((item) => item.id === claimId);
+        return sum + (claim?.points || 0);
+      }, 0)
+    : Math.abs(Number(elements.akuzaValueSelect.value || 0));
+  elements.seresAkuzaTotal.textContent = total
+    ? t("game.akuzaDeclaredTotal", { total: `−${total}` })
+    : t("game.akuzaSelectHint");
+  $("#seresDeclareButton").disabled = total <= 0;
 }
 
 function renderAkuza(state) {
@@ -677,18 +785,36 @@ function renderAkuza(state) {
   const claims = state.me.akuzaClaims || [];
   elements.seresAkuzaTurnBar.classList.toggle("hidden", claims.length === 0);
   if (claims.length) {
-    const selected = elements.akuzaClaimSelect.value;
-    elements.akuzaClaimSelect.innerHTML = claims
-      .map(
-        (claim) =>
-          `<option value="${escapeHtml(claim.id)}">${escapeHtml(akuzaLabel(claim))} (−${
-            claim.points
-          })</option>`
-      )
-      .join("");
-    if (claims.some((claim) => claim.id === selected)) {
-      elements.akuzaClaimSelect.value = selected;
+    const valueOnly = state.settings.akuzaDeclarationMode === "value_only";
+    elements.akuzaClaimSelect.classList.toggle("hidden", valueOnly);
+    elements.akuzaValueSelect.classList.toggle("hidden", !valueOnly);
+    if (valueOnly) {
+      const selected = elements.akuzaValueSelect.value;
+      const options = state.me.akuzaValueOptions || [];
+      elements.akuzaValueSelect.innerHTML = options
+        .map(
+          (option) =>
+            `<option value="${option.points}">${escapeHtml(option.label)}</option>`
+        )
+        .join("");
+      if (options.some((option) => String(option.points) === selected)) {
+        elements.akuzaValueSelect.value = selected;
+      }
+    } else {
+      const selected = new Set(selectedAkuzaClaimIds());
+      elements.akuzaClaimSelect.innerHTML = claims
+        .map(
+          (claim) =>
+            `<option value="${escapeHtml(claim.id)}">${escapeHtml(
+              akuzaLabel(claim)
+            )} (−${claim.points})</option>`
+        )
+        .join("");
+      Array.from(elements.akuzaClaimSelect.options).forEach((option) => {
+        option.selected = selected.has(option.value);
+      });
     }
+    updateSeresAkuzaTotal(state);
   }
 
   const pending = state.game.akuzaPhase?.pendingDeclaration;
@@ -730,12 +856,53 @@ function renderLobbyControls(state) {
 
 function renderScoreOverlay(state) {
   const seres = isSeresMode(state);
+  const freeForAll = isFreeForAll(state);
   const ended =
     state.game.status === "matchEnd" || (!seres && state.game.status === "handEnd");
   elements.scoreOverlay.classList.toggle("hidden", !ended);
   if (!ended || !state.game.handBreakdown) return;
 
   const matchEnded = state.game.status === "matchEnd";
+  if (freeForAll) {
+    elements.scoreBreakdown.classList.add("free-for-all");
+    const winner = state.players[state.game.winnerSeat];
+    elements.scoreTitle.textContent = matchEnded
+      ? t("score.playerWins", {
+          player: winner?.nickname || t("game.playerFallback"),
+        })
+      : t("score.handNumberEnded", { hand: state.game.handNumber });
+    elements.scoreBreakdown.innerHTML = state.game.handBreakdown
+      .map((score) => {
+        const player = state.players[score.seat];
+        const isWinner = matchEnded && score.seat === state.game.winnerSeat;
+        return `
+          <article class="team-breakdown ${isWinner ? "winner" : ""}">
+            <h3>${escapeHtml(player?.nickname || t("game.playerFallback"))}</h3>
+            <div class="score-line"><span>${t("score.cards")}</span><strong>${score.cardPoints} + ${score.remainderThirds}/3</strong></div>
+            <div class="score-line"><span>${t("score.lastTrick")}</span><strong>+${score.lastTrickBonus}</strong></div>
+            <div class="score-line"><span>${t("common.akuza")}</span><strong>+${score.akuzaPoints}</strong></div>
+            <div class="score-line total"><span>${t("score.totalInHand")}</span><strong>${score.handTotal}</strong></div>
+            <div class="match-total">${score.matchBefore} → ${score.matchTotal}</div>
+          </article>
+        `;
+      })
+      .join("");
+    elements.nextHandButton.classList.toggle(
+      "hidden",
+      matchEnded || !state.me.isHost
+    );
+    elements.newMatchButton.classList.toggle(
+      "hidden",
+      !matchEnded || !state.me.isHost
+    );
+    elements.waitingForHost.textContent = state.me.isHost
+      ? ""
+      : matchEnded
+      ? t("score.hostNewMatch")
+      : t("score.waitingHost");
+    elements.ratingSummary.classList.add("hidden");
+    return;
+  }
   if (seres) {
     elements.scoreBreakdown.classList.add("free-for-all");
     const loser = state.players[state.game.loserSeat];
@@ -842,14 +1009,15 @@ function renderState(state) {
   elements.gameView.classList.remove("hidden");
   elements.roomCode.textContent = state.code;
   const seres = isSeresMode(state);
+  const freeForAll = isFreeForAll(state);
   elements.teamScores.forEach((element, team) => {
     element.textContent = state.game.teamScores[team];
   });
   elements.classicTeamScores.forEach((element) =>
-    element.classList.toggle("hidden", seres)
+    element.classList.toggle("hidden", seres || freeForAll)
   );
-  elements.playerScoreBoard.classList.toggle("hidden", !seres);
-  if (seres) {
+  elements.playerScoreBoard.classList.toggle("hidden", !(seres || freeForAll));
+  if (seres || freeForAll) {
     elements.playerScoreBoard.innerHTML = state.players
       .map((player, seat) => {
         if (!player) return "";
@@ -860,7 +1028,7 @@ function renderState(state) {
         }">
             <span>${escapeHtml(player.nickname)}</span>
             <strong>${formatThirds(score?.thirds)}</strong>
-            <small>${t("game.lowerIsBetter")}</small>
+            <small>${seres ? t("game.lowerIsBetter") : t("game.higherIsBetter")}</small>
           </article>
         `;
       })
@@ -869,10 +1037,16 @@ function renderState(state) {
   elements.captured.forEach((element, team) => {
     element.textContent = seres
       ? ""
-      : Math.floor(state.game.capturedCounts[team] / 4);
+      : freeForAll
+      ? ""
+      : Math.floor(state.game.capturedCounts[team] / state.settings.playerCount);
   });
-  $$(".captured-pile").forEach((pile) => pile.classList.toggle("hidden", seres));
-  const tricksPerHand = { 3: 13, 4: 10, 5: 8 }[state.settings.playerCount] || 10;
+  $$(".captured-pile").forEach((pile) =>
+    pile.classList.toggle("hidden", seres || freeForAll)
+  );
+  const tricksPerHand =
+    state.rules?.totalTricks ||
+    ({ 3: 13, 4: 10, 5: 8 }[state.settings.playerCount] || 10);
   elements.handLabel.textContent =
     state.game.status === "lobby"
       ? t("game.lobby")
@@ -888,6 +1062,18 @@ function renderState(state) {
   elements.settingsLabel.textContent = [
     seres ? t("mode.seres") : t("mode.classic"),
     state.settings.ranked ? t("common.ranked") : t("common.casual"),
+    count("player", state.settings.playerCount),
+    state.rules?.drawStockEnabled
+      ? t("game.stockCount", { count: state.game.stockCount })
+      : null,
+    state.settings.seresThreePlayerDealMode === "remove_all_fours_12"
+      ? t("game.dealNoFours")
+      : null,
+    state.settings.akuzaDeclarationMode === "value_only"
+      ? t("game.akuzaValueOnly")
+      : state.settings.akuzaDeclarationMode === "specific"
+      ? t("game.akuzaSpecific")
+      : null,
     seres
       ? t("game.responseSeconds", {
           seconds: state.settings.challengeSeconds,
@@ -915,6 +1101,8 @@ elements.joinButton = $("#joinButton");
 elements.createButton.addEventListener("click", createRoom);
 elements.joinButton.addEventListener("click", () => joinRoom());
 elements.gameModeSetting.addEventListener("change", applyRankedSetting);
+elements.akuzaDeclarationModeSetting.addEventListener("change", applyRankedSetting);
+elements.seresThreePlayerDealModeSetting.addEventListener("change", applyRankedSetting);
 elements.seresMatchType.addEventListener("change", () => {
   if (elements.seresMatchType.value === "ranked" && !currentAccount) {
     elements.seresMatchType.value = "casual";
@@ -948,7 +1136,18 @@ elements.codeInput.addEventListener("keydown", (event) => {
 elements.startButton.addEventListener("click", () => emitIntent("startGame"));
 $("#declareButton").addEventListener("click", () => emitIntent("declareAkuza"));
 $("#seresDeclareButton").addEventListener("click", () =>
-  emitIntent("declareAkuza", { claimId: elements.akuzaClaimSelect.value })
+  emitIntent(
+    "declareAkuza",
+    currentState?.settings.akuzaDeclarationMode === "value_only"
+      ? { value: Number(elements.akuzaValueSelect.value) }
+      : { claimIds: selectedAkuzaClaimIds() }
+  )
+);
+elements.akuzaClaimSelect.addEventListener("change", () =>
+  updateSeresAkuzaTotal(currentState)
+);
+elements.akuzaValueSelect.addEventListener("change", () =>
+  updateSeresAkuzaTotal(currentState)
 );
 $("#passAkuzaButton").addEventListener("click", () => emitIntent("passAkuza"));
 $("#continueAkuzaButton").addEventListener("click", () =>

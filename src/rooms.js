@@ -1,23 +1,42 @@
 const crypto = require("crypto");
-const { createDeck, shuffle, deal, dealSeresUManje } = require("./rules/cards");
+const {
+  createDeck,
+  shuffle,
+  dealClassicTreseta,
+  dealSeresUManje,
+} = require("./rules/cards");
 const {
   playableCardIds,
   canPlayCard,
   trickWinner,
   scoreHand,
+  scoreSeats,
   detectAkuza,
   AKUZA_CLAIMS,
   akuzaClaim,
   handHasAkuzaClaim,
+  normalizeAkuzaClaimIds,
+  claimsHaveDuplicateFamily,
+  akuzaClaimsValue,
+  handHasAkuzaClaims,
+  maxAkuzaValue,
+  validAkuzaTotals,
+  isValidAkuzaTotal,
   scoreCardsInThirds,
 } = require("./rules/treseta");
 const {
   GAME_MODE_CLASSIC,
   GAME_MODE_SERES_U_MANJE,
+  AKUZA_DECLARATION_SPECIFIC,
+  AKUZA_DECLARATION_VALUE_ONLY,
+  SERES_DEAL_SINGLE_HIDDEN_DISCARD_13,
   normalizeMode,
   modeConfig,
   normalizePlayerCount,
   normalizeChallengeSeconds,
+  normalizeAkuzaDeclarationMode,
+  normalizeSeresThreePlayerDealMode,
+  gameRules,
 } = require("./rules/modes");
 
 const SEAT_NAMES = ["Sjever", "Istok", "Jug", "Zapad", "Sidro"];
@@ -54,6 +73,11 @@ function scoreFromThirds(thirds) {
   };
 }
 
+function cardName(card) {
+  if (!card) return "kartu";
+  return `${card.label} ${card.suit}`;
+}
+
 class Room {
   constructor(code, hostName, socketId, settings = {}, account = null) {
     const token = makeToken();
@@ -64,6 +88,25 @@ class Room {
     const config = modeConfig(mode);
     const ranked = Boolean(settings.ranked);
     const playerCount = normalizePlayerCount(mode, settings.playerCount);
+    if (mode === GAME_MODE_CLASSIC && ranked && playerCount !== 4) {
+      throw new Error(
+        "Rangirana klasična Trešeta trenutno je dostupna samo za 4 igrača."
+      );
+    }
+    const akuzaDeclarationMode =
+      mode === GAME_MODE_SERES_U_MANJE
+        ? normalizeAkuzaDeclarationMode(settings.akuzaDeclarationMode)
+        : null;
+    const seresThreePlayerDealMode =
+      mode === GAME_MODE_SERES_U_MANJE && playerCount === 3
+        ? normalizeSeresThreePlayerDealMode(settings.seresThreePlayerDealMode)
+        : SERES_DEAL_SINGLE_HIDDEN_DISCARD_13;
+    const rules = gameRules({
+      mode,
+      playerCount,
+      akuzaDeclarationMode,
+      seresThreePlayerDealMode,
+    });
     this.settings = {
       mode,
       playerCount,
@@ -85,7 +128,9 @@ class Room {
           ? "treseta_seres_u_manje_ranked"
           : "classic_treseta_ranked"
         : null,
-      teams: config.teams,
+      teams: rules.teams ?? config.teams,
+      akuzaDeclarationMode,
+      seresThreePlayerDealMode,
       challengeSeconds:
         mode === GAME_MODE_SERES_U_MANJE
           ? normalizeChallengeSeconds(settings.challengeSeconds)
@@ -104,6 +149,18 @@ class Room {
 
   get isSeresMode() {
     return this.mode === GAME_MODE_SERES_U_MANJE;
+  }
+
+  rules() {
+    return gameRules(this.settings);
+  }
+
+  get isClassicFreeForAll() {
+    return this.mode === GAME_MODE_CLASSIC && this.rules().freeForAll;
+  }
+
+  get usesClassicTeamScoring() {
+    return this.mode === GAME_MODE_CLASSIC && !this.rules().freeForAll;
   }
 
   makePlayer(nickname, seat, token = makeToken(), socketId = null, account = null) {
@@ -129,7 +186,10 @@ class Room {
       trick: [],
       pendingTrick: null,
       hands: Array.from({ length: this.settings.playerCount }, () => []),
+      stock: [],
       discard: null,
+      removedCards: [],
+      removedCardsPublic: false,
       captured: [[], []],
       capturedBySeat: Array.from({ length: this.settings.playerCount }, () => []),
       teamScores: [0, 0],
@@ -139,14 +199,18 @@ class Room {
       declaredSeats: new Set(),
       hasPlayed: Array(this.settings.playerCount).fill(false),
       akuzaPoints: [0, 0],
+      akuzaPointsBySeat: Array(this.settings.playerCount).fill(0),
       akuzaPhase: null,
       seresOpportunity: null,
       signals: [],
+      drawReveals: [],
+      drawLog: [],
       signaledThisLead: false,
       lastTrickWinnerSeat: null,
       handBreakdown: null,
       lastHandResult: null,
       winnerTeam: null,
+      winnerSeat: null,
       loserSeat: null,
       standings: null,
       matchId: null,
@@ -297,20 +361,27 @@ class Room {
     this.game.trickNumber = 1;
     this.game.trick = [];
     this.game.pendingTrick = null;
+    this.game.stock = [];
     this.game.discard = null;
+    this.game.removedCards = [];
+    this.game.removedCardsPublic = false;
     this.game.captured = [[], []];
     this.game.capturedBySeat = Array.from({ length: count }, () => []);
     this.game.declarations = [];
     this.game.declaredSeats = new Set();
     this.game.hasPlayed = Array(count).fill(false);
     this.game.akuzaPoints = [0, 0];
+    this.game.akuzaPointsBySeat = Array(count).fill(0);
     this.game.akuzaPhase = null;
     this.game.seresOpportunity = null;
     this.game.signals = [];
+    this.game.drawReveals = [];
+    this.game.drawLog = [];
     this.game.signaledThisLead = false;
     this.game.lastTrickWinnerSeat = null;
     this.game.handBreakdown = null;
     this.game.winnerTeam = null;
+    this.game.winnerSeat = null;
     this.game.loserSeat = null;
     this.game.standings = null;
     this.game.handStartScoresThirds = [...this.game.playerScoresThirds];
@@ -323,10 +394,17 @@ class Room {
     }
     this.resetHandState();
     const deck = shuffle(createDeck());
+    const rules = this.rules();
     if (this.isSeresMode) {
-      const dealt = dealSeresUManje(deck, this.settings.playerCount);
+      const dealt = dealSeresUManje(
+        deck,
+        this.settings.playerCount,
+        this.settings.seresThreePlayerDealMode
+      );
       this.game.hands = dealt.hands;
       this.game.discard = dealt.discard;
+      this.game.removedCards = dealt.removedCards || [];
+      this.game.removedCardsPublic = Boolean(dealt.removedCardsPublic);
       this.game.status = "akuza";
       this.game.turnSeat = null;
       this.game.akuzaPhase = {
@@ -344,9 +422,17 @@ class Room {
         ? `${previousMessage} Nova ruka je podijeljena; ${player.nickname} je na redu za akužu.`
         : `${player.nickname} je prvi na redu za akužu.`;
     } else {
-      this.game.hands = deal(deck);
+      const dealt = dealClassicTreseta(deck, this.settings.playerCount);
+      this.game.hands = dealt.hands;
+      this.game.stock = dealt.stock || [];
+      this.game.discard = dealt.discard;
+      this.game.removedCards = dealt.removedCards || [];
+      this.game.removedCardsPublic = Boolean(dealt.removedCardsPublic);
       this.game.status = "playing";
-      this.game.message = `${this.players[this.game.leaderSeat].nickname} otvara ruku.`;
+      this.game.message =
+        rules.drawStockEnabled && this.game.stock.length
+          ? `${this.players[this.game.leaderSeat].nickname} otvara ruku. Ostatak karata je u kupu za povlačenje.`
+          : `${this.players[this.game.leaderSeat].nickname} otvara ruku.`;
     }
     this.touch();
   }
@@ -362,9 +448,9 @@ class Room {
     this.dealNextHandInternal(firstHand);
   }
 
-  declareAkuza(token, claimId = "") {
+  declareAkuza(token, payload = "") {
     if (!this.settings.akuza) throw new Error("Akuža je isključena u ovoj sobi.");
-    if (this.isSeresMode) return this.declareSeresModeAkuza(token, claimId);
+    if (this.isSeresMode) return this.declareSeresModeAkuza(token, payload);
     if (this.game.status !== "playing") throw new Error("Ruka nije u tijeku.");
     const player = this.requirePlayer(token);
     if (this.game.hasPlayed[player.seat]) {
@@ -378,7 +464,11 @@ class Room {
     if (!combinations.length) throw new Error("Ova ruka nema valjanu akužu.");
     const points = combinations.reduce((sum, combo) => sum + combo.points, 0);
     this.game.declaredSeats.add(player.seat);
-    this.game.akuzaPoints[teamForSeat(player.seat)] += points;
+    if (this.isClassicFreeForAll) {
+      this.game.akuzaPointsBySeat[player.seat] += points;
+    } else {
+      this.game.akuzaPoints[teamForSeat(player.seat)] += points;
+    }
     this.game.declarations.push({ seat: player.seat, points, combinations });
     this.game.message = `${player.nickname} prijavljuje akužu za ${points} boda.`;
     this.touch();
@@ -442,32 +532,78 @@ class Room {
     return null;
   }
 
-  declareSeresModeAkuza(token, claimId) {
+  declareSeresModeAkuza(token, payload = {}) {
     const { player, phase } = this.requireAkuzaTurn(token);
-    const claim = akuzaClaim(claimId);
-    if (!claim) throw new Error("Odaberite valjanu vrstu akuže.");
+    const mode = this.settings.akuzaDeclarationMode || AKUZA_DECLARATION_SPECIFIC;
+    let claimIds = [];
+    let claims = [];
+    let points = 0;
+    let label = "";
+
+    if (mode === AKUZA_DECLARATION_VALUE_ONLY) {
+      const rawValue =
+        typeof payload === "object" && payload !== null
+          ? payload.value ?? payload.points ?? payload.declaredValue
+          : payload;
+      points = Math.abs(Number(rawValue));
+      if (!Number.isInteger(points) || !isValidAkuzaTotal(points)) {
+        throw new Error("Odaberite valjanu vrijednost akuže.");
+      }
+      label = `−${points}`;
+    } else {
+      claimIds =
+        typeof payload === "object" && payload !== null
+          ? normalizeAkuzaClaimIds(payload.claimIds || payload.claimId)
+          : normalizeAkuzaClaimIds(payload);
+      if (!claimIds.length) throw new Error("Odaberite barem jednu akužu.");
+      if (claimsHaveDuplicateFamily(claimIds)) {
+        throw new Error("Odaberite samo jednu vrijednost za istu vrstu akuže.");
+      }
+      claims = claimIds.map((claimId) => {
+        const claim = akuzaClaim(claimId);
+        if (!claim) throw new Error("Odaberite valjanu vrstu akuže.");
+        return claim;
+      });
+      points = akuzaClaimsValue(claimIds);
+      label = claims.map((claim) => claim.label).join(" + ");
+    }
+
     const responses = {};
     this.players.forEach((_candidate, seat) => {
       if (seat !== player.seat) responses[seat] = "pending";
     });
     phase.pendingDeclaration = {
       declarerSeat: player.seat,
-      claimId: claim.id,
-      label: claim.label,
-      points: claim.points,
+      declarationMode: mode,
+      claimIds,
+      claims: claims.map((claim) => ({
+        id: claim.id,
+        label: claim.label,
+        points: claim.points,
+        type: claim.type,
+        rank: claim.rank,
+        suit: claim.suit,
+        count: claim.count,
+      })),
+      claimId: claimIds[0] || null,
+      label,
+      points,
       responses,
       ...this.startResponseWindow(player.seat),
     };
     this.game.declarations.push({
       seat: player.seat,
-      claimId: claim.id,
-      label: claim.label,
-      points: claim.points,
+      declarationMode: mode,
+      claimIds,
+      claims: phase.pendingDeclaration.claims,
+      claimId: claimIds[0] || null,
+      label,
+      points,
       accepted: false,
     });
-    this.game.message = `${player.nickname} prijavljuje akužu. Čekaju se odgovori: Nastavi ili Sereš.`;
+    this.game.message = `${player.nickname} prijavljuje akužu vrijednu -${points}. Čekaju se odgovori: Nastavi ili Sereš.`;
     this.touch();
-    return { player, claim, points: claim.points };
+    return { player, claims, claimIds, points, declarationMode: mode };
   }
 
   passAkuza(token) {
@@ -525,11 +661,11 @@ class Room {
         .find(
           (item) =>
             item.seat === pending.declarerSeat &&
-            item.claimId === pending.claimId &&
+            item.points === pending.points &&
             !item.accepted
         );
       if (declaration) declaration.accepted = true;
-      const acceptedMessage = `Akuža igrača ${declarer.nickname} prihvaćena je i oduzima ${pending.points} boda.`;
+      const acceptedMessage = `Akuža igrača ${declarer.nickname} prihvaćena je: -${pending.points}.`;
       this.advanceAkuzaTurn();
       this.game.message = `${acceptedMessage} ${this.game.message}`;
     } else {
@@ -582,7 +718,7 @@ class Room {
     const hand = this.game.hands[player.seat];
     const card = hand.find((candidate) => candidate.id === cardId);
     if (!card) throw new Error("Ta karta nije u vašoj ruci.");
-    const mustFollowSuit = modeConfig(this.mode).mustFollowSuit;
+    const mustFollowSuit = this.rules().mustFollowSuit;
     if (!canPlayCard(hand, cardId, this.game.trick, mustFollowSuit)) {
       throw new Error("Morate pratiti boju.");
     }
@@ -723,10 +859,10 @@ class Room {
       if (!pending || pending.declarerSeat !== accusedSeat) {
         throw new Error("Ta akuža više nije otvorena za Sereš.");
       }
-      accusedWasLying = !handHasAkuzaClaim(
-        this.game.hands[accusedSeat],
-        pending.claimId
-      );
+      accusedWasLying =
+        pending.declarationMode === AKUZA_DECLARATION_VALUE_ONLY
+          ? maxAkuzaValue(this.game.hands[accusedSeat]) < pending.points
+          : !handHasAkuzaClaims(this.game.hands[accusedSeat], pending.claimIds);
       detail = pending;
     } else {
       const opportunity = this.game.seresOpportunity;
@@ -800,15 +936,98 @@ class Room {
 
     if (this.isSeresMode) return this.resolveSeresPendingTrick(pending);
 
-    const team = teamForSeat(pending.winnerSeat);
-    this.game.captured[team].push(...pending.cards.map((play) => play.card));
+    const rules = this.rules();
+    const trickCards = pending.cards.map((play) => play.card);
+    if (rules.freeForAll) {
+      this.game.capturedBySeat[pending.winnerSeat].push(...trickCards);
+    } else {
+      const team = teamForSeat(pending.winnerSeat);
+      this.game.captured[team].push(...trickCards);
+    }
     this.game.trick = [];
     this.game.pendingTrick = null;
     this.game.leaderSeat = pending.winnerSeat;
     this.game.signaledThisLead = false;
 
-    const handFinished = this.game.hands.every((hand) => hand.length === 0);
+    if (rules.drawStockEnabled && this.game.stock.length > 0) {
+      const drawOrder = [
+        pending.winnerSeat,
+        ...Array.from(
+          { length: this.settings.playerCount - 1 },
+          (_unused, index) =>
+            (pending.winnerSeat + index + 1) % this.settings.playerCount
+        ),
+      ];
+      const reveals = [];
+      drawOrder.forEach((seat) => {
+        if (!this.game.stock.length) return;
+        const drawn = this.game.stock.shift();
+        this.game.hands[seat].push(drawn);
+        reveals.push({ seat, card: drawn });
+      });
+      this.game.drawReveals = reveals;
+      this.game.drawLog.push(
+        ...reveals.map((reveal) => ({
+          seat: reveal.seat,
+          card: reveal.card,
+          trickNumber: pending.trickNumber,
+        }))
+      );
+      this.game.drawLog = this.game.drawLog.slice(-12);
+      this.game.trickNumber += 1;
+      this.game.turnSeat = pending.winnerSeat;
+      this.game.message = `${this.players[pending.winnerSeat].nickname} uzima štih i vuče prvi. ${reveals
+        .map(
+          (reveal) =>
+            `${this.players[reveal.seat].nickname} vuče ${cardName(reveal.card)}`
+        )
+        .join("; ")}.`;
+      return {
+        handFinished: false,
+        drewCards: reveals,
+        stockCount: this.game.stock.length,
+      };
+    }
+
+    this.game.drawReveals = [];
+    const handFinished =
+      this.game.stock.length === 0 &&
+      this.game.hands.every((hand) => hand.length === 0);
     if (handFinished) {
+      if (rules.freeForAll) {
+        const breakdown = scoreSeats(
+          this.game.capturedBySeat,
+          pending.winnerSeat,
+          this.game.akuzaPointsBySeat
+        );
+        breakdown.forEach((score) => {
+          score.nickname = this.players[score.seat].nickname;
+          score.matchBeforeThirds = this.game.playerScoresThirds[score.seat];
+          score.matchBefore = Math.trunc(score.matchBeforeThirds / 3);
+          this.game.playerScoresThirds[score.seat] += score.handTotal * 3;
+          score.matchAfterThirds = this.game.playerScoresThirds[score.seat];
+          score.matchTotal = Math.trunc(score.matchAfterThirds / 3);
+        });
+        this.game.handBreakdown = breakdown;
+        const winner = breakdown
+          .filter((score) => this.game.playerScoresThirds[score.seat] >= MATCH_LIMIT_THIRDS)
+          .sort(
+            (left, right) =>
+              this.game.playerScoresThirds[right.seat] -
+                this.game.playerScoresThirds[left.seat] ||
+              left.seat - right.seat
+          )[0];
+        this.game.winnerSeat = winner?.seat ?? null;
+        this.game.status = this.game.winnerSeat === null ? "handEnd" : "matchEnd";
+        this.game.turnSeat = null;
+        this.game.message =
+          this.game.winnerSeat === null
+            ? `Ruka ${this.game.handNumber} je završena.`
+            : `${this.players[this.game.winnerSeat].nickname} osvaja partiju!`;
+        return { handFinished: true, breakdown };
+      }
+
+      const team = teamForSeat(pending.winnerSeat);
       const breakdown = scoreHand(this.game.captured, team, this.game.akuzaPoints);
       breakdown.forEach((score, index) => {
         score.matchBefore = this.game.teamScores[index];
@@ -962,6 +1181,7 @@ class Room {
     return {
       code: this.code,
       settings: { ...this.settings },
+      rules: this.rules(),
       players: this.players.map((player, seat) =>
         player
           ? {
@@ -985,7 +1205,22 @@ class Room {
         trick: this.game.trick,
         pendingTrick: this.game.pendingTrick,
         handCounts: this.game.hands.map((hand) => hand.length),
-        capturedCounts: this.isSeresMode
+        stockCount: this.game.stock.length,
+        drawReveals: this.game.drawReveals.map((reveal) => ({
+          seat: reveal.seat,
+          card: { ...reveal.card },
+        })),
+        drawLog: this.game.drawLog.map((entry) => ({
+          seat: entry.seat,
+          card: { ...entry.card },
+          trickNumber: entry.trickNumber,
+        })),
+        removedCards:
+          this.game.removedCardsPublic || ["handEnd", "matchEnd"].includes(this.game.status)
+            ? this.game.removedCards.map((card) => ({ ...card }))
+            : [],
+        removedCardsPublic: this.game.removedCardsPublic,
+        capturedCounts: this.isSeresMode || this.isClassicFreeForAll
           ? this.game.capturedBySeat.map((cards) => cards.length)
           : this.game.captured.map((cards) => cards.length),
         teamScores: [...this.game.teamScores],
@@ -1000,6 +1235,7 @@ class Room {
         handBreakdown: this.game.handBreakdown,
         lastHandResult: this.game.lastHandResult,
         winnerTeam: this.game.winnerTeam,
+        winnerSeat: this.game.winnerSeat,
         loserSeat: this.game.loserSeat,
         standings: this.game.standings,
         matchId: this.game.matchId,
@@ -1051,11 +1287,18 @@ class Room {
             ? playableCardIds(
                 hand,
                 this.game.trick,
-                modeConfig(this.mode).mustFollowSuit
+                this.rules().mustFollowSuit
               )
             : [],
         akuza: classicAkuza,
         akuzaClaims: isAkuzaTurn ? AKUZA_CLAIMS : [],
+        akuzaValueOptions: isAkuzaTurn
+          ? validAkuzaTotals().map((points) => ({
+              points,
+              value: -points,
+              label: `−${points}`,
+            }))
+          : [],
         canPassAkuza: isAkuzaTurn,
         canRespondAkuza,
         canCallSeres:
@@ -1095,6 +1338,36 @@ class Room {
         startedAt: this.game.matchStartedAt,
         loserSeat: this.game.loserSeat,
         standings: this.game.standings,
+        playerScoresThirds: [...this.game.playerScoresThirds],
+        handCount: this.game.handNumber,
+        players: this.players.map((player) => ({
+          accountId: player.accountId,
+          nickname: player.nickname,
+          seat: player.seat,
+        })),
+      };
+    }
+    if (this.isClassicFreeForAll) {
+      if (this.game.winnerSeat === null) return null;
+      const standings = this.players
+        .map((player, seat) => ({
+          seat,
+          nickname: player.nickname,
+          scoreThirds: this.game.playerScoresThirds[seat],
+          score: scoreFromThirds(this.game.playerScoresThirds[seat]),
+        }))
+        .sort((a, b) => b.scoreThirds - a.scoreThirds || a.seat - b.seat)
+        .map((entry, index) => ({ ...entry, rank: index + 1 }));
+      return {
+        matchId: this.game.matchId,
+        roomCode: this.code,
+        mode: GAME_MODE_CLASSIC,
+        rankingKey: this.settings.rankingKey,
+        ranked: this.settings.ranked,
+        settings: { ...this.settings },
+        startedAt: this.game.matchStartedAt,
+        winnerSeat: this.game.winnerSeat,
+        standings,
         playerScoresThirds: [...this.game.playerScoresThirds],
         handCount: this.game.handNumber,
         players: this.players.map((player) => ({

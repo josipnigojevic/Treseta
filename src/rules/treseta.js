@@ -74,6 +74,24 @@ function scoreHand(capturedByTeam, lastTrickTeam, akuzaPoints = [0, 0]) {
   });
 }
 
+function scoreSeats(capturedBySeat, lastTrickSeat, akuzaPointsBySeat = []) {
+  return capturedBySeat.map((cards, seat) => {
+    const cardThirds = countCardThirds(cards);
+    const cardPoints = Math.floor(cardThirds / 3);
+    const lastTrickBonus = seat === lastTrickSeat ? 1 : 0;
+    const declarationPoints = akuzaPointsBySeat[seat] || 0;
+    return {
+      seat,
+      cardThirds,
+      cardPoints,
+      remainderThirds: cardThirds % 3,
+      lastTrickBonus,
+      akuzaPoints: declarationPoints,
+      handTotal: cardPoints + lastTrickBonus + declarationPoints,
+    };
+  });
+}
+
 function detectAkuza(hand) {
   const combinations = [];
 
@@ -168,6 +186,73 @@ function handHasAkuzaClaim(hand, claimId) {
   );
 }
 
+function normalizeAkuzaClaimIds(claimIds) {
+  const raw = Array.isArray(claimIds) ? claimIds : [claimIds];
+  const ids = raw
+    .map((claimId) => String(claimId || "").trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function claimsHaveDuplicateFamily(claimIds) {
+  const families = new Set();
+  return claimIds.some((claimId) => {
+    const claim = akuzaClaim(claimId);
+    if (!claim) return false;
+    const family =
+      claim.type === "rank-set" ? `${claim.type}:${claim.rank}` : claim.id;
+    if (families.has(family)) return true;
+    families.add(family);
+    return false;
+  });
+}
+
+function akuzaClaimsValue(claimIds) {
+  return normalizeAkuzaClaimIds(claimIds).reduce((sum, claimId) => {
+    const claim = akuzaClaim(claimId);
+    if (!claim) throw new Error("Odaberite valjanu vrstu akuže.");
+    return sum + claim.points;
+  }, 0);
+}
+
+function handHasAkuzaClaims(hand, claimIds) {
+  const normalized = normalizeAkuzaClaimIds(claimIds);
+  return (
+    normalized.length > 0 &&
+    normalized.every((claimId) => handHasAkuzaClaim(hand, claimId))
+  );
+}
+
+function maxAkuzaValue(hand) {
+  return detectAkuza(hand).reduce((sum, combo) => sum + combo.points, 0);
+}
+
+function validAkuzaTotals() {
+  const rankChoices = [
+    [0, 3, 4],
+    [0, 3, 4],
+    [0, 3, 4],
+  ];
+  const napolitanaChoices = [
+    [0, 3],
+    [0, 3],
+    [0, 3],
+    [0, 3],
+  ];
+  const totals = new Set([0]);
+  [...rankChoices, ...napolitanaChoices].forEach((choices) => {
+    const existing = [...totals];
+    existing.forEach((total) => {
+      choices.forEach((value) => totals.add(total + value));
+    });
+  });
+  return [...totals].filter((value) => value > 0).sort((a, b) => a - b);
+}
+
+function isValidAkuzaTotal(value) {
+  return validAkuzaTotals().includes(Number(value));
+}
+
 function scoreCardsInThirds(cards) {
   return countCardThirds(cards);
 }
@@ -180,9 +265,17 @@ module.exports = {
   trickWinner,
   countCardThirds,
   scoreHand,
+  scoreSeats,
   detectAkuza,
   AKUZA_CLAIMS,
   akuzaClaim,
   handHasAkuzaClaim,
+  normalizeAkuzaClaimIds,
+  claimsHaveDuplicateFamily,
+  akuzaClaimsValue,
+  handHasAkuzaClaims,
+  maxAkuzaValue,
+  validAkuzaTotals,
+  isValidAkuzaTotal,
   scoreCardsInThirds,
 };
