@@ -384,6 +384,18 @@ test("Sereš specific akuža can combine multiple claims into -6", () => {
   assert.strictEqual(room.game.playerScoresThirds[declarerSeat], -18);
 });
 
+test("Sereš specific akuža rejects duplicate rank-set family choices", () => {
+  const { room, tokens } = makeSeresRoom(3, false, {
+    akuzaDeclarationMode: "specific",
+  });
+  const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
+  assert.throws(() =>
+    room.declareAkuza(tokens[declarerSeat], {
+      claimIds: ["rank-ace-3", "rank-ace-4"],
+    })
+  );
+});
+
 test("Sereš specific akuža dynamically sums totals beyond -3/-6/-9", () => {
   assert.ok(validAkuzaTotals().includes(8));
   assert.ok(validAkuzaTotals().includes(12));

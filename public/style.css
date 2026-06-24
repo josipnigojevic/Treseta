@@ -1295,16 +1295,6 @@ button.playing-card {
   transform: translateY(1px);
 }
 
-.akuza-value-grid {
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  max-width: 520px;
-}
-
-.akuza-value-toggle {
-  justify-content: center;
-  min-height: 38px;
-}
-
 .seres-trick-bar {
   color: #ffe4df;
   border-color: rgba(220, 88, 69, 0.55);

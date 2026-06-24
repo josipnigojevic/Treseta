@@ -53,7 +53,6 @@ const elements = {
   seresAkuzaTitle: $("#seresAkuzaTitle"),
   seresAkuzaSubtitle: $("#seresAkuzaSubtitle"),
   akuzaClaimOptions: $("#akuzaClaimOptions"),
-  akuzaValueOptions: $("#akuzaValueOptions"),
   seresAkuzaTotal: $("#seresAkuzaTotal"),
   akuzaResponseBar: $("#akuzaResponseBar"),
   pendingAkuzaDescription: $("#pendingAkuzaDescription"),
@@ -109,7 +108,6 @@ let currentAccount = null;
 let authMode = "login";
 let wantsRankedAfterAuth = false;
 let preparedAkuzaClaimIds = new Set();
-let preparedAkuzaValue = "";
 let preparedAkuzaHandKey = "";
 
 function selectedMode() {
@@ -790,7 +788,6 @@ function syncPreparedAkuza(state) {
   if (key && key === preparedAkuzaHandKey) return;
   preparedAkuzaHandKey = key;
   preparedAkuzaClaimIds = new Set();
-  preparedAkuzaValue = "";
 }
 
 function setPreparedAkuzaClaim(state, claimId, checked) {
@@ -828,34 +825,16 @@ function renderAkuzaClaimToggles(state) {
     .join("");
 }
 
-function renderAkuzaValueToggles(state) {
-  const options = state.me.akuzaValueOptions || [];
-  elements.akuzaValueOptions.innerHTML = options
-    .map((option) => {
-      const selected = String(option.points) === String(preparedAkuzaValue);
-      return `
-        <label class="akuza-toggle akuza-value-toggle ${selected ? "selected" : ""}">
-          <input type="radio" name="seresAkuzaValue" value="${option.points}" ${
-        selected ? "checked" : ""
-      } />
-          <span>${escapeHtml(option.label)}</span>
-        </label>
-      `;
-    })
-    .join("");
+function selectedAkuzaTotal(state = currentState) {
+  return selectedAkuzaClaimIds().reduce((sum, claimId) => {
+    const claim = state?.me?.akuzaClaims?.find((item) => item.id === claimId);
+    return sum + (claim?.points || 0);
+  }, 0);
 }
 
 function updateSeresAkuzaTotal(state = currentState) {
-  if (!state?.me?.akuzaClaims?.length && !state?.me?.akuzaValueOptions?.length) {
-    return;
-  }
-  const specific = state.settings.akuzaDeclarationMode !== "value_only";
-  const total = specific
-    ? selectedAkuzaClaimIds().reduce((sum, claimId) => {
-        const claim = state.me.akuzaClaims.find((item) => item.id === claimId);
-        return sum + (claim?.points || 0);
-      }, 0)
-    : Math.abs(Number(preparedAkuzaValue || 0));
+  if (!state?.me?.akuzaClaims?.length) return;
+  const total = selectedAkuzaTotal(state);
   elements.seresAkuzaTotal.textContent = total
     ? t("game.akuzaDeclaredTotal", { total: `−${total}` })
     : t("game.akuzaSelectHint");
@@ -877,24 +856,17 @@ function renderAkuza(state) {
 
   syncPreparedAkuza(state);
   const claims = state.me.akuzaClaims || [];
-  const valueOptions = state.me.akuzaValueOptions || [];
-  const canPrepare = claims.length > 0 || valueOptions.length > 0;
+  const canPrepare = claims.length > 0;
   elements.seresAkuzaTurnBar.classList.toggle("hidden", !canPrepare);
   if (canPrepare) {
-    const valueOnly = state.settings.akuzaDeclarationMode === "value_only";
-    elements.akuzaClaimOptions.classList.toggle("hidden", valueOnly);
-    elements.akuzaValueOptions.classList.toggle("hidden", !valueOnly);
+    elements.akuzaClaimOptions.classList.remove("hidden");
     elements.seresAkuzaTitle.textContent = state.me.canPassAkuza
       ? t("game.yourAkuzaTurn")
       : t("game.prepareAkuza");
     elements.seresAkuzaSubtitle.textContent = state.me.canPassAkuza
       ? t("game.akuzaBluff")
       : t("game.prepareAkuzaHint");
-    if (valueOnly) {
-      renderAkuzaValueToggles(state);
-    } else {
-      renderAkuzaClaimToggles(state);
-    }
+    renderAkuzaClaimToggles(state);
     updateSeresAkuzaTotal(state);
   }
 
@@ -1242,18 +1214,13 @@ $("#seresDeclareButton").addEventListener("click", () =>
   emitIntent(
     "declareAkuza",
     currentState?.settings.akuzaDeclarationMode === "value_only"
-      ? { value: Number(preparedAkuzaValue) }
+      ? { value: selectedAkuzaTotal(currentState) }
       : { claimIds: selectedAkuzaClaimIds() }
   )
 );
 elements.akuzaClaimOptions.addEventListener("change", (event) => {
   if (!currentState || event.target?.type !== "checkbox") return;
   setPreparedAkuzaClaim(currentState, event.target.value, event.target.checked);
-});
-elements.akuzaValueOptions.addEventListener("change", (event) => {
-  if (!currentState || event.target?.type !== "radio") return;
-  preparedAkuzaValue = event.target.value;
-  renderAkuza(currentState);
 });
 $("#passAkuzaButton").addEventListener("click", () => emitIntent("passAkuza"));
 $("#continueAkuzaButton").addEventListener("click", () =>
