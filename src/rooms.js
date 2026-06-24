@@ -474,12 +474,15 @@ class Room {
       this.game.turnSeat = null;
       this.game.akuzaPhase = {
         active: true,
+        subphase: "declaration",
         turnOrder: Array.from(
           { length: this.settings.playerCount },
           (_unused, index) => (this.game.leaderSeat + index) % this.settings.playerCount
         ),
         currentIndex: 0,
         currentPlayerSeat: this.game.leaderSeat,
+        declarations: [],
+        challengeIndex: -1,
         pendingDeclaration: null,
       };
       const player = this.players[this.game.leaderSeat];
@@ -547,8 +550,8 @@ class Room {
     const player = this.requirePlayer(token);
     const phase = this.game.akuzaPhase;
     if (!phase?.active) throw new Error("Faza akuže nije u tijeku.");
-    if (phase.pendingDeclaration) {
-      throw new Error("Čeka se Nastavi ili Sereš za trenutnu akužu.");
+    if (phase.subphase !== "declaration") {
+      throw new Error("Prijave akuže su završene.");
     }
     if (phase.currentPlayerSeat !== player.seat) {
       throw new Error("Niste na redu za akužu.");
@@ -597,6 +600,18 @@ class Room {
     return null;
   }
 
+  serializeAkuzaClaim(claim) {
+    return {
+      id: claim.id,
+      label: claim.label,
+      points: claim.points,
+      type: claim.type,
+      rank: claim.rank,
+      suit: claim.suit,
+      count: claim.count,
+    };
+  }
+
   declareSeresModeAkuza(token, payload = {}) {
     const { player, phase } = this.requireAkuzaTurn(token);
     const mode = this.settings.akuzaDeclarationMode || AKUZA_DECLARATION_SPECIFIC;
@@ -633,65 +648,152 @@ class Room {
       label = claims.map((claim) => claim.label).join(" + ");
     }
 
-    const responses = {};
-    this.players.forEach((_candidate, seat) => {
-      if (seat !== player.seat) responses[seat] = "pending";
-    });
-    phase.pendingDeclaration = {
+    const declaration = {
       declarerSeat: player.seat,
-      declarationMode: mode,
-      claimIds,
-      claims: claims.map((claim) => ({
-        id: claim.id,
-        label: claim.label,
-        points: claim.points,
-        type: claim.type,
-        rank: claim.rank,
-        suit: claim.suit,
-        count: claim.count,
-      })),
-      claimId: claimIds[0] || null,
-      label,
-      points,
-      responses,
-      ...this.startResponseWindow(player.seat),
-    };
-    this.game.declarations.push({
       seat: player.seat,
+      declared: true,
       declarationMode: mode,
       claimIds,
-      claims: phase.pendingDeclaration.claims,
+      claims: claims.map((claim) => this.serializeAkuzaClaim(claim)),
       claimId: claimIds[0] || null,
       label,
       points,
+      declaredValue: points,
       accepted: false,
-    });
-    this.game.message = `${player.nickname} prijavljuje akužu vrijednu -${points}. Čekaju se odgovori: Nastavi ili Sereš.`;
+      applied: false,
+      challengeStatus: "pending",
+    };
+    phase.declarations.push(declaration);
+    this.game.declarations.push(declaration);
+    this.advanceAkuzaTurn(`${player.nickname} prijavljuje akužu vrijednu -${points}.`);
     this.touch();
     return { player, claims, claimIds, points, declarationMode: mode };
   }
 
   passAkuza(token) {
-    const { player } = this.requireAkuzaTurn(token);
-    this.advanceAkuzaTurn();
+    const { player, phase } = this.requireAkuzaTurn(token);
+    phase.declarations.push({
+      declarerSeat: player.seat,
+      seat: player.seat,
+      declared: false,
+      declarationMode: this.settings.akuzaDeclarationMode || AKUZA_DECLARATION_SPECIFIC,
+      claimIds: [],
+      claims: [],
+      claimId: null,
+      label: "",
+      points: 0,
+      declaredValue: 0,
+      accepted: false,
+      applied: false,
+      challengeStatus: "passed",
+    });
+    this.advanceAkuzaTurn(`${player.nickname} preskače akužu.`);
     this.touch();
     return { player };
   }
 
-  advanceAkuzaTurn() {
+  advanceAkuzaTurn(previousMessage = "") {
     const phase = this.game.akuzaPhase;
     phase.pendingDeclaration = null;
     phase.currentIndex += 1;
     if (phase.currentIndex >= phase.turnOrder.length) {
-      phase.active = false;
-      phase.currentPlayerSeat = null;
-      this.game.status = "playing";
-      this.game.turnSeat = this.game.leaderSeat;
-      this.game.message = `${this.players[this.game.leaderSeat].nickname} otvara prvi štih.`;
+      this.startAkuzaChallengeSubphase(previousMessage);
       return;
     }
     phase.currentPlayerSeat = phase.turnOrder[phase.currentIndex];
-    this.game.message = `${this.players[phase.currentPlayerSeat].nickname} je na redu za akužu.`;
+    const nextMessage = `${this.players[phase.currentPlayerSeat].nickname} je na redu za akužu.`;
+    this.game.message = previousMessage
+      ? `${previousMessage} ${nextMessage}`
+      : nextMessage;
+  }
+
+  startAkuzaChallengeSubphase(previousMessage = "") {
+    const phase = this.game.akuzaPhase;
+    phase.subphase = "challenge";
+    phase.currentPlayerSeat = null;
+    phase.challengeIndex = -1;
+    phase.pendingDeclaration = null;
+    this.advanceAkuzaChallenge(previousMessage);
+  }
+
+  pendingAkuzaFromDeclaration(declaration, declarationIndex) {
+    const responses = {};
+    this.players.forEach((_candidate, seat) => {
+      if (seat !== declaration.seat) responses[seat] = "pending";
+    });
+    return {
+      ...declaration,
+      declarationIndex,
+      responses,
+      ...this.startResponseWindow(declaration.seat),
+    };
+  }
+
+  advanceAkuzaChallenge(previousMessage = "") {
+    const phase = this.game.akuzaPhase;
+    const nextIndex = phase.declarations.findIndex(
+      (declaration, index) =>
+        index > phase.challengeIndex &&
+        declaration.declared &&
+        declaration.challengeStatus === "pending"
+    );
+
+    if (nextIndex === -1) {
+      phase.active = false;
+      phase.currentPlayerSeat = null;
+      phase.pendingDeclaration = null;
+      this.game.status = "playing";
+      this.game.turnSeat = this.game.leaderSeat;
+      const playMessage = `${this.players[this.game.leaderSeat].nickname} otvara prvi štih.`;
+      this.game.message = previousMessage
+        ? `${previousMessage} ${playMessage}`
+        : playMessage;
+      return { complete: true };
+    }
+
+    phase.challengeIndex = nextIndex;
+    const declaration = phase.declarations[nextIndex];
+    phase.pendingDeclaration = this.pendingAkuzaFromDeclaration(
+      declaration,
+      nextIndex
+    );
+    const declarer = this.players[declaration.seat];
+    const responder = this.players[phase.pendingDeclaration.currentResponderSeat];
+    const challengeMessage = `Čeka se da ${responder.nickname} odabere Nastavi ili Sereš za akužu igrača ${declarer.nickname} (-${declaration.points}).`;
+    this.game.message = previousMessage
+      ? `${previousMessage} ${challengeMessage}`
+      : challengeMessage;
+    return { complete: false, declaration };
+  }
+
+  applyAcceptedAkuza(declaration) {
+    if (!declaration || declaration.applied) return false;
+    this.game.playerScoresThirds[declaration.seat] -= declaration.points * 3;
+    declaration.applied = true;
+    declaration.accepted = true;
+    declaration.challengeStatus = "accepted";
+    const phaseDeclaration =
+      this.game.akuzaPhase?.declarations?.[declaration.declarationIndex];
+    if (phaseDeclaration && phaseDeclaration !== declaration) {
+      phaseDeclaration.applied = true;
+      phaseDeclaration.accepted = true;
+      phaseDeclaration.challengeStatus = "accepted";
+    }
+    return true;
+  }
+
+  settleDeclaredAkuzeAfterSeres(rejectedDeclarationIndex = null) {
+    const declarations = this.game.akuzaPhase?.declarations || [];
+    declarations.forEach((declaration, declarationIndex) => {
+      if (!declaration.declared) return;
+      if (declarationIndex === rejectedDeclarationIndex) {
+        declaration.accepted = false;
+        declaration.applied = false;
+        declaration.challengeStatus = "challenged";
+        return;
+      }
+      this.applyAcceptedAkuza({ ...declaration, declarationIndex });
+    });
   }
 
   respondAkuza(token, action) {
@@ -701,6 +803,9 @@ class Room {
     const player = this.requirePlayer(token);
     const phase = this.game.akuzaPhase;
     const pending = phase?.pendingDeclaration;
+    if (phase?.subphase !== "challenge") {
+      throw new Error("Sereš na akužu nije dostupan tijekom prijava.");
+    }
     if (!pending) throw new Error("Nema akuže koja čeka odgovor.");
     if (pending.declarerSeat === player.seat) {
       throw new Error("Ne možete odgovoriti na vlastitu akužu.");
@@ -720,22 +825,13 @@ class Room {
     const allContinued = this.advanceResponseWindow(pending);
     if (allContinued) {
       const declarer = this.players[pending.declarerSeat];
-      this.game.playerScoresThirds[pending.declarerSeat] -= pending.points * 3;
-      const declaration = [...this.game.declarations]
-        .reverse()
-        .find(
-          (item) =>
-            item.seat === pending.declarerSeat &&
-            item.points === pending.points &&
-            !item.accepted
-        );
-      if (declaration) declaration.accepted = true;
+      this.applyAcceptedAkuza(pending);
       const acceptedMessage = `Akuža igrača ${declarer.nickname} prihvaćena je: -${pending.points}.`;
-      this.advanceAkuzaTurn();
-      this.game.message = `${acceptedMessage} ${this.game.message}`;
+      this.advanceAkuzaChallenge(acceptedMessage);
     } else {
       const nextResponder = this.players[pending.currentResponderSeat];
-      this.game.message = `Čeka se da ${nextResponder.nickname} odabere Nastavi ili Sereš.`;
+      const declarer = this.players[pending.declarerSeat];
+      this.game.message = `Čeka se da ${nextResponder.nickname} odabere Nastavi ili Sereš za akužu igrača ${declarer.nickname} (-${pending.points}).`;
     }
     this.touch();
     return { action: "continue", allContinued };
@@ -929,6 +1025,17 @@ class Room {
           ? maxAkuzaValue(this.game.hands[accusedSeat]) < pending.points
           : !handHasAkuzaClaims(this.game.hands[accusedSeat], pending.claimIds);
       detail = pending;
+      if (!accusedWasLying) {
+        this.applyAcceptedAkuza(pending);
+      } else {
+        pending.challengeStatus = "challenged";
+        const phaseDeclaration =
+          this.game.akuzaPhase?.declarations?.[pending.declarationIndex];
+        if (phaseDeclaration) phaseDeclaration.challengeStatus = "challenged";
+      }
+      this.settleDeclaredAkuzeAfterSeres(
+        accusedWasLying ? pending.declarationIndex : null
+      );
     } else {
       const opportunity = this.game.seresOpportunity;
       if (!opportunity || opportunity.accusedSeat !== accusedSeat) {
@@ -955,7 +1062,7 @@ class Room {
       context === "akuza"
         ? accusedWasLying
           ? `${caller.nickname} zove Sereš na akužu igrača ${accused.nickname}! ${accused.nickname} nije imao tu akužu i dobiva ${penaltyText} bodova. Ruka je završena.`
-          : `${caller.nickname} zove Sereš na akužu igrača ${accused.nickname}! Poziv nije bio točan pa ${caller.nickname} dobiva ${penaltyText} bodova. Ruka je završena.`
+          : `${caller.nickname} zove Sereš na akužu igrača ${accused.nickname}! Poziv nije bio točan pa ${accused.nickname} dobiva -${detail.points}, a ${caller.nickname} dobiva ${penaltyText} bodova. Ruka je završena.`
         : accusedWasLying
         ? `${caller.nickname} zove Sereš na igrača ${accused.nickname}! ${accused.nickname} imao je traženu boju i dobiva ${penaltyText} bodova. Ruka je završena.`
         : `${caller.nickname} zove Sereš na igrača ${accused.nickname}! Poziv nije bio točan pa ${caller.nickname} dobiva ${penaltyText} bodova. Ruka je završena.`;
@@ -1353,7 +1460,13 @@ class Room {
     const akuzaPhase = this.game.akuzaPhase
       ? {
           active: this.game.akuzaPhase.active,
+          subphase: this.game.akuzaPhase.subphase,
           currentPlayerSeat: this.game.akuzaPhase.currentPlayerSeat,
+          currentIndex: this.game.akuzaPhase.currentIndex,
+          challengeIndex: this.game.akuzaPhase.challengeIndex,
+          declarations: (this.game.akuzaPhase.declarations || []).map(
+            (declaration) => ({ ...declaration })
+          ),
           pendingDeclaration: this.game.akuzaPhase.pendingDeclaration
             ? {
                 ...this.game.akuzaPhase.pendingDeclaration,
@@ -1453,6 +1566,7 @@ class Room {
     const canPrepareAkuza =
       this.isSeresMode &&
       this.game.status === "akuza" &&
+      this.game.akuzaPhase?.subphase === "declaration" &&
       Boolean(this.game.akuzaPhase?.active);
     const isAkuzaTurn =
       canPrepareAkuza &&
@@ -1461,7 +1575,7 @@ class Room {
     const canRespondAkuza =
       this.isSeresMode &&
       this.game.status === "akuza" &&
-      pendingAkuza &&
+      Boolean(pendingAkuza) &&
       pendingAkuza.currentResponderSeat === player.seat &&
       pendingAkuza.responses[player.seat] === "pending";
     return {

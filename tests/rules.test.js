@@ -219,6 +219,24 @@ function makeClassicRoom(playerCount = 4, extraSettings = {}) {
 
 function passWholeAkuzaPhase(room, tokens) {
   while (room.game.status === "akuza") {
+    if (room.game.akuzaPhase.subphase === "declaration") {
+      const seat = room.game.akuzaPhase.currentPlayerSeat;
+      room.passAkuza(tokens[seat]);
+    } else if (room.game.akuzaPhase.pendingDeclaration) {
+      const seat =
+        room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+      room.respondAkuza(tokens[seat], "continue");
+    } else {
+      break;
+    }
+  }
+}
+
+function passRemainingAkuzaDeclarations(room, tokens) {
+  while (
+    room.game.status === "akuza" &&
+    room.game.akuzaPhase?.subphase === "declaration"
+  ) {
     const seat = room.game.akuzaPhase.currentPlayerSeat;
     room.passAkuza(tokens[seat]);
   }
@@ -248,6 +266,7 @@ test("new mode is separate, supports 3–5 players, and starts with an akuža ph
     assert.strictEqual(room.settings.playerCount, playerCount);
     assert.strictEqual(room.settings.teams, false);
     assert.strictEqual(room.game.status, "akuza");
+    assert.strictEqual(room.game.akuzaPhase.subphase, "declaration");
     assert.strictEqual(room.game.hands[0].length, { 3: 13, 4: 10, 5: 8 }[playerCount]);
     const publicState = room.publicState();
     assert.strictEqual(Object.prototype.hasOwnProperty.call(publicState.game, "discard"), false);
@@ -345,13 +364,21 @@ test("Sereš u Manje permits any suit but led-suit strength still wins the trick
   assert.strictEqual(result.winnerSeat, 2);
 });
 
-test("akuža is turn-based, may be fake, waits for everyone, and subtracts points", () => {
+test("akuža declarations are collected before challenge and accepted declarations subtract points", () => {
   const { room, tokens } = makeSeresRoom(3);
   const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
   const wrongSeat = (declarerSeat + 1) % 3;
+  assert.strictEqual(room.game.akuzaPhase.subphase, "declaration");
   assert.throws(() => room.declareAkuza(tokens[wrongSeat], "rank-ace-3"));
+  assert.strictEqual(room.stateFor(tokens[wrongSeat]).me.canRespondAkuza, false);
   room.declareAkuza(tokens[declarerSeat], "rank-ace-3");
-  assert.throws(() => room.declareAkuza(tokens[wrongSeat], "rank-2-3"));
+  assert.strictEqual(room.game.akuzaPhase.pendingDeclaration, null);
+  assert.strictEqual(room.game.akuzaPhase.subphase, "declaration");
+  assert.strictEqual(room.game.akuzaPhase.declarations[0].declared, true);
+  assert.strictEqual(room.game.akuzaPhase.currentPlayerSeat, wrongSeat);
+  assert.throws(() => room.callSeres(tokens[wrongSeat], "akuza"));
+  passRemainingAkuzaDeclarations(room, tokens);
+  assert.strictEqual(room.game.akuzaPhase.subphase, "challenge");
   const firstResponder =
     room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
   const wrongResponder = [0, 1, 2].find(
@@ -366,7 +393,15 @@ test("akuža is turn-based, may be fake, waits for everyone, and subtracts point
   room.respondAkuza(tokens[secondResponder], "continue");
   assert.strictEqual(room.game.playerScoresThirds[declarerSeat], -9);
   assert.strictEqual(room.game.akuzaPhase.pendingDeclaration, null);
-  assert.notStrictEqual(room.game.akuzaPhase.currentPlayerSeat, declarerSeat);
+  assert.strictEqual(room.game.status, "playing");
+});
+
+test("akuža phase skips challenge when nobody declares", () => {
+  const { room, tokens } = makeSeresRoom(3);
+  passRemainingAkuzaDeclarations(room, tokens);
+  assert.strictEqual(room.game.status, "playing");
+  assert.strictEqual(room.game.akuzaPhase.pendingDeclaration, null);
+  assert.strictEqual(room.game.playerScoresThirds.every((score) => score === 0), true);
 });
 
 test("Sereš specific akuža can combine multiple claims into -6", () => {
@@ -377,6 +412,7 @@ test("Sereš specific akuža can combine multiple claims into -6", () => {
   room.declareAkuza(tokens[declarerSeat], {
     claimIds: ["rank-ace-3", "napolitana-coins"],
   });
+  passRemainingAkuzaDeclarations(room, tokens);
   const pending = room.game.akuzaPhase.pendingDeclaration;
   assert.strictEqual(pending.points, 6);
   assert.deepStrictEqual(pending.claimIds, ["rank-ace-3", "napolitana-coins"]);
@@ -412,7 +448,7 @@ test("Sereš specific akuža dynamically sums totals beyond -3/-6/-9", () => {
   room.declareAkuza(tokens[declarerSeat], {
     claimIds: ["rank-ace-4", "rank-2-4"],
   });
-  assert.strictEqual(room.game.akuzaPhase.pendingDeclaration.points, 8);
+  assert.strictEqual(room.game.akuzaPhase.declarations[0].points, 8);
 });
 
 test("Sereš value-only akuža stores only the value and validates hand coverage", () => {
@@ -430,11 +466,13 @@ test("Sereš value-only akuža stores only the value and validates hand coverage
   ];
   assert.strictEqual(maxAkuzaValue(room.game.hands[declarerSeat]), 6);
   room.declareAkuza(tokens[declarerSeat], { value: 6 });
+  passRemainingAkuzaDeclarations(room, tokens);
   const pending = room.game.akuzaPhase.pendingDeclaration;
   assert.strictEqual(pending.declarationMode, "value_only");
   assert.deepStrictEqual(pending.claimIds, []);
   const callerSeat = (declarerSeat + 1) % 3;
   room.callSeres(tokens[callerSeat], "akuza");
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], -18);
   assert.strictEqual(room.game.playerScoresThirds[callerSeat], 33);
   assert.strictEqual(room.game.lastHandResult.accusedWasLying, false);
 });
@@ -460,9 +498,11 @@ test("Sereš value-only akuža accepts dynamic -12 when the hand can cover it", 
   ];
   assert.strictEqual(maxAkuzaValue(room.game.hands[declarerSeat]), 24);
   room.declareAkuza(tokens[declarerSeat], { value: 12 });
+  passRemainingAkuzaDeclarations(room, tokens);
   const callerSeat = (declarerSeat + 1) % 3;
   room.callSeres(tokens[callerSeat], "akuza");
   assert.strictEqual(room.game.lastHandResult.accusedWasLying, false);
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], -36);
   assert.strictEqual(room.game.playerScoresThirds[callerSeat], 33);
 });
 
@@ -474,10 +514,124 @@ test("Sereš value-only akuža accepts -9 as a bluff and punishes it when challe
   room.game.hands[declarerSeat] = [card("cups", "4"), card("coins", "5")];
   assert.ok(validAkuzaTotals().includes(9));
   room.declareAkuza(tokens[declarerSeat], { value: 9 });
+  passRemainingAkuzaDeclarations(room, tokens);
   const callerSeat = (declarerSeat + 1) % 3;
   room.callSeres(tokens[callerSeat], "akuza");
   assert.strictEqual(room.game.playerScoresThirds[declarerSeat], 33);
   assert.strictEqual(room.game.lastHandResult.accusedWasLying, true);
+});
+
+test("multiple akuža declarations are challenged in declaration order", () => {
+  const { room, tokens } = makeSeresRoom(4);
+  const firstSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.declareAkuza(tokens[firstSeat], "rank-ace-3");
+  const secondSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.declareAkuza(tokens[secondSeat], "rank-2-3");
+  passRemainingAkuzaDeclarations(room, tokens);
+
+  assert.strictEqual(room.game.akuzaPhase.subphase, "challenge");
+  assert.strictEqual(room.game.akuzaPhase.pendingDeclaration.declarerSeat, firstSeat);
+  continueWholeAkuzaChallenge(room, tokens);
+  assert.strictEqual(room.game.playerScoresThirds[firstSeat], -9);
+  assert.strictEqual(room.game.playerScoresThirds[secondSeat], -9);
+  assert.strictEqual(room.game.status, "playing");
+});
+
+test("Sereš on a later akuža keeps earlier accepted deductions", () => {
+  const { room, tokens } = makeSeresRoom(4);
+  const firstSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.declareAkuza(tokens[firstSeat], "rank-ace-3");
+  const secondSeat = room.game.akuzaPhase.currentPlayerSeat;
+  room.game.hands[secondSeat] = [card("cups", "4"), card("coins", "5")];
+  room.declareAkuza(tokens[secondSeat], "rank-2-3");
+  passRemainingAkuzaDeclarations(room, tokens);
+
+  while (
+    room.game.akuzaPhase.pendingDeclaration &&
+    room.game.akuzaPhase.pendingDeclaration.declarerSeat === firstSeat
+  ) {
+    const responder = room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+    room.respondAkuza(tokens[responder], "continue");
+  }
+  assert.strictEqual(room.game.playerScoresThirds[firstSeat], -9);
+  assert.strictEqual(room.game.akuzaPhase.pendingDeclaration.declarerSeat, secondSeat);
+  const callerSeat = room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+  room.callSeres(tokens[callerSeat], "akuza");
+
+  assert.strictEqual(room.game.playerScoresThirds[firstSeat], -9);
+  assert.strictEqual(room.game.playerScoresThirds[secondSeat], 33);
+  assert.strictEqual(room.game.lastHandResult.accusedWasLying, true);
+  assert.strictEqual(room.game.handNumber, 2);
+});
+
+function declareFiveAkuzaClaims(room, tokens, realChallenged = false) {
+  const order = [];
+  for (let index = 0; index < 5; index += 1) {
+    const seat = room.game.akuzaPhase.currentPlayerSeat;
+    order.push(seat);
+    if (index === 2) {
+      room.game.hands[seat] = realChallenged
+        ? [card("coins", "ace"), card("cups", "ace"), card("swords", "ace")]
+        : [card("cups", "4"), card("coins", "5")];
+      room.declareAkuza(tokens[seat], "rank-ace-3");
+    } else {
+      room.declareAkuza(tokens[seat], "rank-2-3");
+    }
+  }
+  return order;
+}
+
+function acceptUntilDeclaration(room, tokens, declarerSeat) {
+  while (
+    room.game.akuzaPhase.pendingDeclaration &&
+    room.game.akuzaPhase.pendingDeclaration.declarerSeat !== declarerSeat
+  ) {
+    const responder = room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+    room.respondAkuza(tokens[responder], "continue");
+  }
+}
+
+test("five declarations accept every akuža when a real declaration is challenged", () => {
+  const { room, tokens } = makeSeresRoom(5);
+  const order = declareFiveAkuzaClaims(room, tokens, true);
+  const challengedSeat = order[2];
+  acceptUntilDeclaration(room, tokens, challengedSeat);
+  assert.deepStrictEqual(
+    order.map((seat) => room.game.playerScoresThirds[seat]),
+    [-9, -9, 0, 0, 0]
+  );
+
+  const callerSeat = room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+  room.callSeres(tokens[callerSeat], "akuza");
+
+  assert.strictEqual(room.game.lastHandResult.accusedWasLying, false);
+  assert.strictEqual(room.game.playerScoresThirds[order[0]], -9);
+  assert.strictEqual(room.game.playerScoresThirds[order[1]], -9);
+  assert.strictEqual(room.game.playerScoresThirds[challengedSeat], -9);
+  order.slice(3).forEach((seat) => {
+    const expectedThirds = seat === callerSeat ? 24 : -9;
+    assert.strictEqual(room.game.playerScoresThirds[seat], expectedThirds);
+  });
+  assert.strictEqual(room.game.handNumber, 2);
+});
+
+test("five declarations reject only the fake challenged akuža", () => {
+  const { room, tokens } = makeSeresRoom(5);
+  const order = declareFiveAkuzaClaims(room, tokens, false);
+  const challengedSeat = order[2];
+  acceptUntilDeclaration(room, tokens, challengedSeat);
+
+  const callerSeat = room.game.akuzaPhase.pendingDeclaration.currentResponderSeat;
+  room.callSeres(tokens[callerSeat], "akuza");
+
+  assert.strictEqual(room.game.lastHandResult.accusedWasLying, true);
+  assert.strictEqual(room.game.playerScoresThirds[order[0]], -9);
+  assert.strictEqual(room.game.playerScoresThirds[order[1]], -9);
+  assert.strictEqual(room.game.playerScoresThirds[challengedSeat], 33);
+  order.slice(3).forEach((seat) => {
+    assert.strictEqual(room.game.playerScoresThirds[seat], -9);
+  });
+  assert.strictEqual(room.game.handNumber, 2);
 });
 
 function callFakeAkuzaWithPositiveHandPoints(positiveThirds, scoreThirds = positiveThirds) {
@@ -488,6 +642,7 @@ function callFakeAkuzaWithPositiveHandPoints(positiveThirds, scoreThirds = posit
   room.game.playerScoresThirds[declarerSeat] = scoreThirds;
   room.game.handStartScoresThirds = [...room.game.playerScoresThirds];
   room.declareAkuza(tokens[declarerSeat], "rank-ace-3");
+  passRemainingAkuzaDeclarations(room, tokens);
   const callerSeat = (declarerSeat + 1) % 3;
   room.callSeres(tokens[callerSeat], "akuza");
   return { room, declarerSeat };
@@ -544,6 +699,7 @@ test("correct Sereš on a fake akuža punishes the bluffer and starts a new hand
   const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
   room.game.hands[declarerSeat] = [card("cups", "4"), card("coins", "5")];
   room.declareAkuza(tokens[declarerSeat], "rank-ace-3");
+  passRemainingAkuzaDeclarations(room, tokens);
   const callerSeat = (declarerSeat + 1) % 3;
   room.callSeres(tokens[callerSeat], "akuza");
   assert.strictEqual(room.game.playerScoresThirds[declarerSeat], 33);
@@ -562,8 +718,10 @@ test("incorrect Sereš on a real akuža punishes the caller and ends only the ha
     card("coins", "3"),
   ];
   room.declareAkuza(tokens[declarerSeat], "napolitana-coins");
+  passRemainingAkuzaDeclarations(room, tokens);
   const callerSeat = (declarerSeat + 1) % 4;
   room.callSeres(tokens[callerSeat], "akuza");
+  assert.strictEqual(room.game.playerScoresThirds[declarerSeat], -9);
   assert.strictEqual(room.game.playerScoresThirds[callerSeat], 33);
   assert.strictEqual(room.game.status, "akuza");
   assert.strictEqual(room.game.handNumber, 2);
@@ -651,6 +809,7 @@ test("akuža response timers advance by default and later players can challenge"
   const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
   room.game.hands[declarerSeat] = [card("cups", "4")];
   room.declareAkuza(tokens[declarerSeat], "rank-ace-3");
+  passRemainingAkuzaDeclarations(room, tokens);
   const pending = room.game.akuzaPhase.pendingDeclaration;
   const firstResponder = pending.currentResponderSeat;
   room.continueExpiredChallenge(pending.deadlineAt);
@@ -674,10 +833,8 @@ test("a normal hand awards trick points, preserves akuža deductions, and auto-d
   const { room, tokens } = makeSeresRoom(3);
   const declarerSeat = room.game.akuzaPhase.currentPlayerSeat;
   room.declareAkuza(tokens[declarerSeat], "rank-ace-3");
+  passRemainingAkuzaDeclarations(room, tokens);
   continueWholeAkuzaChallenge(room, tokens);
-  while (room.game.status === "akuza") {
-    room.passAkuza(tokens[room.game.akuzaPhase.currentPlayerSeat]);
-  }
   room.game.turnSeat = 0;
   room.game.leaderSeat = 0;
   room.game.trick = [];

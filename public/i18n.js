@@ -1008,6 +1008,14 @@
       it: "In attesa di Continua o Sereš per l'akuža attuale.",
       en: "Waiting for Continue or Sereš on the current akuža.",
     },
+    "Prijave akuže su završene.": {
+      it: "Le dichiarazioni di akuža sono terminate.",
+      en: "Akuža declarations are finished.",
+    },
+    "Sereš na akužu nije dostupan tijekom prijava.": {
+      it: "Sereš sull'akuža non è disponibile durante le dichiarazioni.",
+      en: "Sereš on akuža is not available during declarations.",
+    },
     "Niste na redu za akužu.": {
       it: "Non è il tuo turno per l'akuža.",
       en: "It is not your akuža turn.",
