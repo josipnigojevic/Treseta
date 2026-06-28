@@ -66,7 +66,7 @@
               <p id="modeDescription" class="mode-description" data-i18n="mode.classicDescription">
                 Klasična Trešeta za četiri igrača u dvije ekipe.
               </p>
-              <label>
+              <label class="setup-field">
                 <span data-i18n="lobby.playerCount">Broj igrača</span>
                 <select id="playerCountSetting">
                   <option value="2" data-i18n="players.2">2 igrača</option>
@@ -76,14 +76,14 @@
                 </select>
               </label>
               <div id="seresSetup" class="seres-setup hidden">
-                <label>
+                <label class="setup-field">
                   <span data-i18n="lobby.matchType">Vrsta partije</span>
                   <select id="seresMatchType">
                     <option value="casual" data-i18n="common.casual">Ležerno</option>
                     <option value="ranked" data-i18n="common.ranked">Rangirano</option>
                   </select>
                 </label>
-                <label>
+                <label class="setup-field">
                   <span data-i18n="lobby.akuzaDeclaration">Akuža declaration</span>
                   <select id="akuzaDeclarationModeSetting">
                     <option value="specific" data-i18n="lobby.akuzaSpecific">Specific</option>
@@ -91,7 +91,7 @@
                   </select>
                   <small id="akuzaDeclarationModeHelp" class="field-help"></small>
                 </label>
-                <label id="seresThreePlayerDealField" class="hidden">
+                <label id="seresThreePlayerDealField" class="setup-field hidden">
                   <span data-i18n="lobby.seresDealStyle">3-player deal style</span>
                   <select id="seresThreePlayerDealModeSetting">
                     <option value="single_hidden_discard_13" data-i18n="lobby.seresDeal13">13 cards + 1 hidden discard</option>
@@ -99,7 +99,7 @@
                   </select>
                   <small class="field-help" data-i18n="lobby.seresDealHelp">13 cards removes one unknown card; 12 cards removes all four 4s.</small>
                 </label>
-                <label class="challenge-time-field">
+                <label class="setup-field challenge-time-field">
                   <span data-i18n="lobby.responseTime">Vrijeme za Nastavi / Sereš</span>
                   <div class="range-setting">
                     <input
@@ -192,6 +192,9 @@
               <option value="en">EN</option>
             </select>
           </label>
+          <button id="reactionButton" class="icon-button reaction-send-button" aria-label="Pošalji reakciju" data-i18n-aria-label="reaction.send">✎</button>
+          <button id="reactionEditButton" class="icon-button reaction-edit-button" aria-label="Nacrtaj reakciju" data-i18n-aria-label="reaction.draw">✚</button>
+          <button id="fullscreenButton" class="icon-button fullscreen-button" aria-label="Fullscreen" data-i18n-aria-label="fullscreen.enter">⛶</button>
           <button class="icon-button rules-open" aria-label="Pravila" data-i18n-aria-label="rules.title">?</button>
           <button id="leaveButton" class="text-button" data-i18n="game.leave">Izađi</button>
         </div>
@@ -248,6 +251,8 @@
           </div>
 
           <div id="ledSuitBadge" class="led-suit-badge hidden"></div>
+          <div id="reactionLayer" class="reaction-layer" aria-hidden="true"></div>
+          <aside id="seresRevealPanel" class="seres-reveal-panel hidden" aria-live="polite"></aside>
           <div id="tableMessage" class="table-message" data-i18n="game.welcome">Dobro došli za stol.</div>
           <div id="signalFeed" class="signal-feed"></div>
         </div>
@@ -452,6 +457,20 @@
     </div>
 
     <div id="toast" class="toast" role="status"></div>
+
+    <div id="reactionModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+      <section class="reaction-modal">
+        <button id="closeReactionButton" class="modal-close" aria-label="Zatvori" data-i18n-aria-label="common.close">×</button>
+        <p class="eyebrow" data-i18n="reaction.draw">Nacrtaj reakciju</p>
+        <h2 data-i18n="reaction.title">Vaša reakcija</h2>
+        <canvas id="reactionCanvas" class="reaction-canvas" width="96" height="96" aria-label="Platno za crtanje reakcije" data-i18n-aria-label="reaction.canvas"></canvas>
+        <div class="reaction-actions">
+          <button id="clearReactionButton" class="button secondary" data-i18n="reaction.clear">Clear</button>
+          <button id="saveReactionButton" class="button gold" data-i18n="reaction.save">Save</button>
+          <button id="sendReactionButton" class="button primary" data-i18n="reaction.send">Send</button>
+        </div>
+      </section>
+    </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="/i18n.js"></script>

@@ -7,6 +7,9 @@ const { AccountStore, parseCookies } = require("./src/accounts");
 
 const PORT = process.env.PORT || 3000;
 const TRICK_DELAY_MS = Number(process.env.TRICK_DELAY_MS || 1050);
+const AUTO_FINAL_CARD_DELAY_MS = Number(
+  process.env.AUTO_FINAL_CARD_DELAY_MS || 2500
+);
 const COOKIE_NAME = "treseta_session";
 const app = express();
 const server = http.createServer(app);
@@ -18,10 +21,12 @@ const rooms = new RoomManager();
 const accounts = new AccountStore();
 const challengeTimers = new Map();
 const trickTimers = new Map();
+const autoFinalCardTimers = new Map();
 const matchRecordings = new Map();
 const matchRetryTimers = new Map();
 let idleRoomTimer = null;
 let shutdownPromise = null;
+const MAX_REACTION_DATA_URL_LENGTH = 12_000;
 
 app.use(express.json({ limit: "16kb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -140,6 +145,15 @@ function emitRoom(room) {
   });
 }
 
+function broadcastReaction(room, seat, image) {
+  io.to(room.code).emit("reaction", {
+    id: `${Date.now()}-${seat}-${Math.random().toString(36).slice(2, 8)}`,
+    seat,
+    image,
+    at: Date.now(),
+  });
+}
+
 function schedulePendingTrickResolution(room) {
   if (!room.game.pendingTrick) return;
   const key = `${room.game.handNumber}:${room.game.pendingTrick.trickNumber}`;
@@ -163,6 +177,7 @@ function schedulePendingTrickResolution(room) {
         if (room.game.status === "matchEnd") await recordCompletedMatch(room);
         emitRoom(room);
         scheduleRoomChallenge(room);
+        scheduleAutoFinalCard(room);
       } catch (error) {
         console.error(`[room ${room.code}] pending trick failed:`, error);
         emitRoom(room);
@@ -170,6 +185,43 @@ function schedulePendingTrickResolution(room) {
     })();
   }, TRICK_DELAY_MS);
   trickTimers.set(room.code, { key, timer });
+}
+
+function scheduleAutoFinalCard(room) {
+  const shouldAuto = room.shouldAutoPlayFinalCard();
+  const previous = autoFinalCardTimers.get(room.code);
+  if (!shouldAuto) {
+    if (previous) clearTimeout(previous.timer);
+    autoFinalCardTimers.delete(room.code);
+    return;
+  }
+
+  const key = `${room.game.handNumber}:${room.game.trickNumber}:${room.game.turnSeat}:${room.game.trick.length}`;
+  if (previous?.key === key) return;
+  if (previous) clearTimeout(previous.timer);
+  const timer = setTimeout(() => {
+    void (async () => {
+      try {
+        autoFinalCardTimers.delete(room.code);
+        const currentRoom = rooms.get(room.code);
+        if (!currentRoom || currentRoom !== room || !room.shouldAutoPlayFinalCard()) {
+          return;
+        }
+        const result = room.autoPlayFinalCard();
+        if (result?.complete && room.game.pendingTrick) {
+          schedulePendingTrickResolution(room);
+        }
+        if (room.game.status === "matchEnd") await recordCompletedMatch(room);
+        emitRoom(room);
+        scheduleRoomChallenge(room);
+        scheduleAutoFinalCard(room);
+      } catch (error) {
+        console.error(`[room ${room.code}] auto final card failed:`, error);
+        emitRoom(room);
+      }
+    })();
+  }, AUTO_FINAL_CARD_DELAY_MS);
+  autoFinalCardTimers.set(room.code, { key, timer });
 }
 
 function scheduleRoomChallenge(room) {
@@ -200,6 +252,7 @@ function scheduleRoomChallenge(room) {
         if (room.game.status === "matchEnd") await recordCompletedMatch(room);
         emitRoom(room);
         scheduleRoomChallenge(room);
+        scheduleAutoFinalCard(room);
       } catch (error) {
         console.error(`[room ${room.code}] challenge timer failed:`, error);
         emitRoom(room);
@@ -222,6 +275,7 @@ function withSession(socket, callback, action) {
         schedulePendingTrickResolution(room);
       }
       scheduleRoomChallenge(room);
+      scheduleAutoFinalCard(room);
       if (room.game.status === "matchEnd") await recordCompletedMatch(room);
       emitRoom(room);
       callbackResult(callback, { ok: true, value });
@@ -434,6 +488,28 @@ io.on("connection", (socket) => {
       console.log(`[room ${room.code}] signal ${result.label} by seat ${result.seat}`);
     })
   );
+
+  socket.on("reaction", (payload = {}, callback) => {
+    try {
+      const session = socket.data.session;
+      if (!session) throw new Error("Najprije se pridružite sobi.");
+      const room = rooms.get(session.code);
+      if (!room) throw new Error("Soba više ne postoji.");
+      const player = room.requirePlayer(session.token);
+      const image = String(payload.image || "");
+      if (
+        !image.startsWith("data:image/png;base64,") ||
+        image.length > MAX_REACTION_DATA_URL_LENGTH
+      ) {
+        throw new Error("Reakcija je prevelika ili nije valjana.");
+      }
+      room.touch();
+      broadcastReaction(room, player.seat, image);
+      callbackResult(callback, { ok: true });
+    } catch (error) {
+      callbackResult(callback, { ok: false, error: error.message });
+    }
+  });
 
   socket.on("playCard", (payload = {}, callback) =>
     withSession(socket, callback, (room, session) => {

@@ -798,6 +798,59 @@ class Room {
     });
   }
 
+  akuzaProofCardIds(hand, declaration, accusedWasLying) {
+    if (accusedWasLying || !declaration) return [];
+    if (declaration.declarationMode === AKUZA_DECLARATION_VALUE_ONLY) {
+      const chosen = [];
+      let total = 0;
+      detectAkuza(hand).forEach((combo) => {
+        if (total >= declaration.points) return;
+        chosen.push(...combo.cards);
+        total += combo.points;
+      });
+      return [...new Set(chosen)];
+    }
+    return normalizeAkuzaClaimIds(declaration.claimIds).flatMap((claimId) => {
+      const claim = akuzaClaim(claimId);
+      if (!claim) return [];
+      if (claim.type === "rank-set") {
+        return hand
+          .filter((card) => card.rank === claim.rank)
+          .map((card) => card.id);
+      }
+      return ["ace", "2", "3"].map((rank) => `${claim.suit}-${rank}`);
+    });
+  }
+
+  seresReveal(context, accusedSeat, detail, accusedWasLying) {
+    const hand = this.game.hands[accusedSeat] || [];
+    const highlightCardIds =
+      context === "trick_play"
+        ? accusedWasLying
+          ? hand.filter((card) => card.suit === detail.ledSuit).map((card) => card.id)
+          : []
+        : this.akuzaProofCardIds(hand, detail, accusedWasLying);
+    return {
+      accusedSeat,
+      context,
+      accusedWasLying,
+      ledSuit: detail?.ledSuit || null,
+      declaration:
+        context === "akuza"
+          ? {
+              declarationMode: detail.declarationMode,
+              claimIds: [...(detail.claimIds || [])],
+              claims: (detail.claims || []).map((claim) => ({ ...claim })),
+              claimId: detail.claimId || null,
+              label: detail.label || "",
+              points: detail.points,
+            }
+          : null,
+      cards: hand.map((card) => ({ ...card })),
+      highlightCardIds: [...new Set(highlightCardIds)],
+    };
+  }
+
   respondAkuza(token, action) {
     if (!this.isSeresMode || this.game.status !== "akuza") {
       throw new Error("Faza akuže nije u tijeku.");
@@ -872,12 +925,30 @@ class Room {
     return signal;
   }
 
+  shouldAutoPlayFinalCard() {
+    return (
+      this.isSeresMode &&
+      this.game.status === "playing" &&
+      !this.game.pendingTrick &&
+      !this.game.seresOpportunity &&
+      this.game.turnSeat !== null &&
+      this.game.hands[this.game.turnSeat]?.length === 1 &&
+      this.game.hands.every((hand) => hand.length <= 1)
+    );
+  }
+
   playCard(token, cardId) {
     if (this.game.status !== "playing") throw new Error("Ruka nije u tijeku.");
     if (this.game.pendingTrick) throw new Error("Pričekajte završetak štiha.");
     const player = this.requirePlayer(token);
     if (player.seat !== this.game.turnSeat) throw new Error("Niste na redu.");
+    if (this.shouldAutoPlayFinalCard()) {
+      throw new Error("Zadnji štih se igra automatski.");
+    }
+    return this.playCardInternal(player, cardId);
+  }
 
+  playCardInternal(player, cardId, options = {}) {
     const hand = this.game.hands[player.seat];
     const card = hand.find((candidate) => candidate.id === cardId);
     if (!card) throw new Error("Ta karta nije u vašoj ruci.");
@@ -891,7 +962,7 @@ class Room {
     this.game.hands[player.seat] = hand.filter((candidate) => candidate.id !== cardId);
     this.game.hasPlayed[player.seat] = true;
     this.game.trick.push({ seat: player.seat, card });
-    if (this.isSeresMode && wasOffSuit) {
+    if (this.isSeresMode && wasOffSuit && !options.skipSeres) {
       this.game.seresOpportunity = {
         accusedSeat: player.seat,
         ledSuit,
@@ -911,7 +982,9 @@ class Room {
       this.touch();
       return { complete: false, challengeStarted: true, player, card };
     }
-    this.game.message = `${player.nickname} igra kartu.`;
+    this.game.message = options.automatic
+      ? `${player.nickname} automatski igra zadnju kartu.`
+      : `${player.nickname} igra kartu.`;
     this.touch();
 
     if (this.game.trick.length < this.settings.playerCount) {
@@ -920,6 +993,19 @@ class Room {
     }
 
     return this.finalizePlayedTrick(player, card);
+  }
+
+  autoPlayFinalCard() {
+    if (!this.shouldAutoPlayFinalCard()) return null;
+    const player = this.players[this.game.turnSeat];
+    const [card] = this.game.hands[player.seat];
+    return {
+      autoFinalCard: true,
+      ...this.playCardInternal(player, card.id, {
+        automatic: true,
+        skipSeres: true,
+      }),
+    };
   }
 
   finalizePlayedTrick(player = null, card = null) {
@@ -1083,6 +1169,7 @@ class Room {
       positiveHandAfterThirds:
         this.game.currentHandPositiveThirds[punishedSeat] || 0,
       detail,
+      reveal: this.seresReveal(context, accusedSeat, detail, accusedWasLying),
       message: resolution,
       scoreChanges: this.game.playerScoresThirds.map((score, seat) => ({
         seat,
@@ -1526,6 +1613,7 @@ class Room {
         playerScores: this.game.playerScoresThirds.map(scoreFromThirds),
         declarations: this.game.declarations,
         akuzaPhase,
+        autoFinalTrick: this.shouldAutoPlayFinalCard(),
         seresOpportunity: this.game.seresOpportunity
           ? { ...this.game.seresOpportunity }
           : null,
@@ -1589,7 +1677,9 @@ class Room {
         authenticated: Boolean(player.accountId),
         hand,
         playableIds:
-          this.game.status === "playing" && this.game.turnSeat === player.seat
+          this.game.status === "playing" &&
+          this.game.turnSeat === player.seat &&
+          !this.shouldAutoPlayFinalCard()
             ? playableCardIds(
                 hand,
                 this.game.trick,

@@ -259,6 +259,14 @@ function continueWholeTrickChallenge(room, tokens) {
   return result;
 }
 
+function autoPlayWholeFinalTrick(room) {
+  const results = [];
+  while (room.shouldAutoPlayFinalCard()) {
+    results.push(room.autoPlayFinalCard());
+  }
+  return results;
+}
+
 test("new mode is separate, supports 3–5 players, and starts with an akuža phase", () => {
   [3, 4, 5].forEach((playerCount) => {
     const { room } = makeSeresRoom(playerCount);
@@ -348,9 +356,9 @@ test("Sereš u Manje permits any suit but led-suit strength still wins the trick
   room.game.leaderSeat = 0;
   room.game.trick = [];
   room.game.hands = [
-    [card("cups", "4")],
-    [card("coins", "3")],
-    [card("cups", "2")],
+    [card("cups", "4"), card("clubs", "4")],
+    [card("coins", "3"), card("clubs", "5")],
+    [card("cups", "2"), card("coins", "4")],
   ];
   assert.deepStrictEqual(
     room.stateFor(tokens[1]).me.playableIds,
@@ -726,6 +734,10 @@ test("incorrect Sereš on a real akuža punishes the caller and ends only the ha
   assert.strictEqual(room.game.status, "akuza");
   assert.strictEqual(room.game.handNumber, 2);
   assert.strictEqual(room.game.matchId !== null, true);
+  assert.deepStrictEqual(
+    room.game.lastHandResult.reveal.highlightCardIds.sort(),
+    ["coins-2", "coins-3", "coins-ace"].sort()
+  );
 });
 
 function prepareOffSuitChallenge(room, tokens, accusedHasLedSuit) {
@@ -750,6 +762,13 @@ test("correct trick-play Sereš punishes an off-suit liar and abandons the hand"
   assert.strictEqual(room.game.handNumber, 2);
   assert.strictEqual(room.game.lastHandResult.context, "trick_play");
   assert.strictEqual(room.game.lastHandResult.accusedWasLying, true);
+  assert.deepStrictEqual(
+    room.game.lastHandResult.reveal.cards.map((card) => card.id),
+    ["cups-ace"]
+  );
+  assert.deepStrictEqual(room.game.lastHandResult.reveal.highlightCardIds, [
+    "cups-ace",
+  ]);
 });
 
 test("incorrect trick-play Sereš punishes the caller", () => {
@@ -763,7 +782,7 @@ test("incorrect trick-play Sereš punishes the caller", () => {
 test("every eligible player receives a sequential Sereš window before the next card", () => {
   const { room, tokens } = makeSeresRoom(3);
   prepareOffSuitChallenge(room, tokens, false);
-  room.game.hands[2] = [card("cups", "6")];
+  room.game.hands[2] = [card("cups", "6"), card("clubs", "4")];
   assert.strictEqual(room.game.turnSeat, null);
   assert.throws(() => room.playCard(tokens[2], "cups-6"));
   const firstResponder = room.game.seresOpportunity.currentResponderSeat;
@@ -802,6 +821,50 @@ test("a later player may call trick-play Sereš after the next player Continues"
   room.callSeres(tokens[laterResponder], "trick_play");
   assert.strictEqual(room.game.playerScoresThirds[1], 33);
   assert.strictEqual(room.game.lastHandResult.callerSeat, laterResponder);
+});
+
+test("Sereš final trick is automatic and cannot create Sereš calls", () => {
+  [
+    { playerCount: 3, extraSettings: {} },
+    {
+      playerCount: 3,
+      extraSettings: { seresThreePlayerDealMode: "remove_all_fours_12" },
+    },
+    { playerCount: 4, extraSettings: {} },
+    { playerCount: 5, extraSettings: {} },
+  ].forEach(({ playerCount, extraSettings }) => {
+    const { room, tokens } = makeSeresRoom(playerCount, false, extraSettings);
+    passWholeAkuzaPhase(room, tokens);
+    const finalCards = [
+      card("cups", "4"),
+      card("coins", "5"),
+      card("swords", "ace"),
+      card("clubs", "2"),
+      card("cups", "3"),
+    ].slice(0, playerCount);
+    room.game.turnSeat = 0;
+    room.game.leaderSeat = 0;
+    room.game.trickNumber = room.rules().totalTricks;
+    room.game.trick = [];
+    room.game.pendingTrick = null;
+    room.game.seresOpportunity = null;
+    room.game.hands = finalCards.map((finalCard) => [finalCard]);
+
+    assert.strictEqual(room.shouldAutoPlayFinalCard(), true);
+    assert.deepStrictEqual(room.stateFor(tokens[0]).me.playableIds, []);
+    assert.throws(() => room.playCard(tokens[0], "cups-4"));
+
+    for (let index = 0; index < playerCount; index += 1) {
+      const result = room.autoPlayFinalCard();
+      assert.strictEqual(result.autoFinalCard, true);
+      assert.strictEqual(room.game.seresOpportunity, null);
+    }
+
+    assert.strictEqual(room.game.pendingTrick.cards.length, playerCount);
+    const resolution = room.resolvePendingTrick();
+    assert.strictEqual(resolution.handFinished, true);
+    assert.strictEqual(room.game.lastHandResult.type, "normal");
+  });
 });
 
 test("akuža response timers advance by default and later players can challenge", () => {
@@ -843,10 +906,10 @@ test("a normal hand awards trick points, preserves akuža deductions, and auto-d
     [card("cups", "4")],
     [card("coins", "3")],
   ];
-  room.playCard(tokens[0], "cups-ace");
-  room.playCard(tokens[1], "cups-4");
-  room.playCard(tokens[2], "coins-3");
-  continueWholeTrickChallenge(room, tokens);
+  room.autoPlayFinalCard();
+  room.autoPlayFinalCard();
+  room.autoPlayFinalCard();
+  assert.strictEqual(room.game.seresOpportunity, null);
   room.resolvePendingTrick();
   assert.strictEqual(room.game.handNumber, 2);
   assert.strictEqual(room.game.status, "akuza");
@@ -869,9 +932,7 @@ function prepareKaputFinalTrick(room, tokens, scoreBeforeHand = [0, 0, 0]) {
     [card("cups", "4")],
     [card("cups", "5")],
   ];
-  room.playCard(tokens[0], "cups-ace");
-  room.playCard(tokens[1], "cups-4");
-  room.playCard(tokens[2], "cups-5");
+  autoPlayWholeFinalTrick(room);
   return room.resolvePendingTrick();
 }
 
@@ -904,9 +965,7 @@ function prepareThresholdKaputFinalTrick(room, tokens, otherThirds) {
     [card("cups", "6")],
     [card("cups", "5")],
   ];
-  room.playCard(tokens[0], "cups-7");
-  room.playCard(tokens[1], "cups-6");
-  room.playCard(tokens[2], "cups-5");
+  autoPlayWholeFinalTrick(room);
   return room.resolvePendingTrick();
 }
 
@@ -936,9 +995,7 @@ test("last trick winner collects partial points from other players", () => {
     [card("cups", "5")],
   ];
 
-  room.playCard(tokens[0], "cups-7");
-  room.playCard(tokens[1], "cups-6");
-  room.playCard(tokens[2], "cups-5");
+  autoPlayWholeFinalTrick(room);
   room.resolvePendingTrick();
 
   assert.deepStrictEqual(room.game.lastHandResult.scoreChanges, [
@@ -964,9 +1021,7 @@ test("last trick winner does not keep loose thirds below a full point", () => {
     [card("cups", "4")],
   ];
 
-  room.playCard(tokens[1], "cups-2");
-  room.playCard(tokens[2], "cups-4");
-  room.playCard(tokens[0], "cups-king");
+  autoPlayWholeFinalTrick(room);
   room.resolvePendingTrick();
 
   assert.strictEqual(room.game.lastHandResult.type, "normal");
@@ -1015,15 +1070,15 @@ test("Sereš ends the match only when the punished player reaches 41", () => {
 test("reaching 41 from resolved trick points ends the match immediately", () => {
   const { room, tokens } = makeSeresRoom(3);
   passWholeAkuzaPhase(room, tokens);
-  room.game.playerScoresThirds[0] = MATCH_LIMIT_THIRDS - 6;
+  room.game.playerScoresThirds[0] = MATCH_LIMIT_THIRDS - 3;
   room.game.handStartScoresThirds = [...room.game.playerScoresThirds];
   room.game.turnSeat = 0;
   room.game.leaderSeat = 0;
   room.game.trick = [];
   room.game.hands = [
-    [card("cups", "ace")],
-    [card("cups", "4")],
-    [card("coins", "4")],
+    [card("cups", "ace"), card("clubs", "4")],
+    [card("cups", "4"), card("clubs", "5")],
+    [card("coins", "4"), card("clubs", "6")],
   ];
   room.playCard(tokens[0], "cups-ace");
   room.playCard(tokens[1], "cups-4");

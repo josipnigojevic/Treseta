@@ -78,6 +78,17 @@ const elements = {
   ratingSummary: $("#ratingSummary"),
   lobbyAccountButton: $("#lobbyAccountButton"),
   gameAccountButton: $("#gameAccountButton"),
+  fullscreenButton: $("#fullscreenButton"),
+  trickArea: $("#trickArea"),
+  reactionButton: $("#reactionButton"),
+  reactionEditButton: $("#reactionEditButton"),
+  reactionLayer: $("#reactionLayer"),
+  reactionModal: $("#reactionModal"),
+  reactionCanvas: $("#reactionCanvas"),
+  clearReactionButton: $("#clearReactionButton"),
+  saveReactionButton: $("#saveReactionButton"),
+  sendReactionButton: $("#sendReactionButton"),
+  seresRevealPanel: $("#seresRevealPanel"),
   authModal: $("#authModal"),
   authTitle: $("#authTitle"),
   authForm: $("#authForm"),
@@ -109,6 +120,12 @@ let authMode = "login";
 let wantsRankedAfterAuth = false;
 let preparedAkuzaClaimIds = new Set();
 let preparedAkuzaHandKey = "";
+let dragState = null;
+let savedReactionImage = localStorage.getItem("tresetaReactionDoodle") || "";
+let reactionDrawing = null;
+let activeSeresRevealKey = "";
+let dismissedSeresRevealKey = "";
+let seresRevealTimer = null;
 
 function selectedMode() {
   return elements.gameModeSetting.value;
@@ -567,6 +584,14 @@ function emitIntent(event, payload = {}) {
   });
 }
 
+function emitIntentAsync(event, payload = {}) {
+  return new Promise((resolve) => {
+    socket.emit(event, payload, (result) => {
+      resolve({ ok: !ackError(result), result });
+    });
+  });
+}
+
 const cardArtRows = { swords: 0, cups: 1, coins: 2, clubs: 3 };
 const cardArtColumns = {
   ace: 0,
@@ -592,6 +617,136 @@ function cardText(card) {
   return `${card.label} ${t(`suit.${card.suit}`)}`;
 }
 
+function pointInRect(x, y, rect) {
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+}
+
+function updateDragPosition(event) {
+  if (!dragState?.clone) return;
+  dragState.clone.style.left = `${event.clientX}px`;
+  dragState.clone.style.top = `${event.clientY}px`;
+  const tilt = Math.max(-8, Math.min(8, (event.clientX - dragState.startX) / 18));
+  dragState.clone.style.setProperty("--drag-tilt", `${tilt}deg`);
+  const overDrop = pointInRect(
+    event.clientX,
+    event.clientY,
+    elements.trickArea.getBoundingClientRect()
+  );
+  elements.trickArea.classList.toggle("drag-over", overDrop);
+}
+
+function createDragClone(source, event) {
+  const rect = source.getBoundingClientRect();
+  const clone = source.cloneNode(true);
+  clone.classList.add("dragging-card");
+  clone.style.width = `${rect.width}px`;
+  clone.style.height = `${rect.height}px`;
+  clone.style.left = `${event.clientX}px`;
+  clone.style.top = `${event.clientY}px`;
+  document.body.appendChild(clone);
+  source.classList.add("drag-source");
+  source.dataset.suppressClick = "1";
+  return clone;
+}
+
+function clearDragState() {
+  document.removeEventListener("pointermove", handleCardDragMove);
+  document.removeEventListener("pointerup", handleCardDragEnd);
+  document.removeEventListener("pointercancel", handleCardDragCancel);
+  elements.trickArea.classList.remove("drag-over");
+  dragState = null;
+}
+
+function removeDragClone() {
+  if (dragState?.clone) dragState.clone.remove();
+  if (dragState?.source) dragState.source.classList.remove("drag-source");
+  clearDragState();
+}
+
+function animateDragBack() {
+  if (!dragState?.clone) {
+    clearDragState();
+    return;
+  }
+  const { clone, source, origin } = dragState;
+  const sourceRect = source.getBoundingClientRect();
+  source.classList.remove("drag-source");
+  clone.classList.add("returning");
+  clone.style.left = `${sourceRect.left + sourceRect.width / 2 || origin.x}px`;
+  clone.style.top = `${sourceRect.top + sourceRect.height / 2 || origin.y}px`;
+  clone.style.transform = "translate(-50%, -50%) scale(1) rotate(0deg)";
+  setTimeout(() => {
+    source.dataset.suppressClick = "";
+    clone.remove();
+    clearDragState();
+  }, 240);
+}
+
+function handleCardDragMove(event) {
+  if (!dragState) return;
+  const distance = Math.hypot(
+    event.clientX - dragState.startX,
+    event.clientY - dragState.startY
+  );
+  if (!dragState.dragging && distance > 7) {
+    dragState.dragging = true;
+    dragState.clone = createDragClone(dragState.source, event);
+  }
+  if (!dragState.dragging) return;
+  event.preventDefault();
+  updateDragPosition(event);
+}
+
+function handleCardDragCancel() {
+  animateDragBack();
+}
+
+async function handleCardDragEnd(event) {
+  if (!dragState) return;
+  if (!dragState.dragging) {
+    clearDragState();
+    return;
+  }
+  event.preventDefault();
+  const droppedOnTable = pointInRect(
+    event.clientX,
+    event.clientY,
+    elements.trickArea.getBoundingClientRect()
+  );
+  elements.trickArea.classList.remove("drag-over");
+  if (!droppedOnTable) {
+    animateDragBack();
+    return;
+  }
+  const { ok } = await emitIntentAsync("playCard", { cardId: dragState.cardId });
+  if (!ok) {
+    animateDragBack();
+    return;
+  }
+  setTimeout(removeDragClone, 120);
+}
+
+function startCardDrag(event, source, card) {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  if (dragState) clearDragState();
+  const rect = source.getBoundingClientRect();
+  dragState = {
+    source,
+    cardId: card.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    origin: {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    },
+    dragging: false,
+    clone: null,
+  };
+  document.addEventListener("pointermove", handleCardDragMove);
+  document.addEventListener("pointerup", handleCardDragEnd, { once: true });
+  document.addEventListener("pointercancel", handleCardDragCancel, { once: true });
+}
+
 function createCard(card, mode = "hand", isPlayable = false, isMyTurn = false) {
   const button = document.createElement(mode === "hand" ? "button" : "div");
   button.className = `playing-card suit-${card.suit}`;
@@ -604,7 +759,17 @@ function createCard(card, mode = "hand", isPlayable = false, isMyTurn = false) {
     button.type = "button";
     if (isPlayable) {
       button.classList.add("playable");
-      button.addEventListener("click", () => emitIntent("playCard", { cardId: card.id }));
+      button.addEventListener("pointerdown", (event) =>
+        startCardDrag(event, button, card)
+      );
+      button.addEventListener("click", (event) => {
+        if (button.dataset.suppressClick === "1") {
+          button.dataset.suppressClick = "";
+          event.preventDefault();
+          return;
+        }
+        emitIntent("playCard", { cardId: card.id });
+      });
     } else if (isMyTurn) {
       button.classList.add("illegal");
       button.disabled = true;
@@ -730,6 +895,8 @@ function renderHand(state) {
     elements.handHint.textContent = player
       ? t("game.kaputWaiting", { player: player.nickname })
       : "";
+  } else if (state.game.autoFinalTrick) {
+    elements.handHint.textContent = t("game.autoFinalTrick");
   } else if (state.game.drawReveals?.length) {
     elements.handHint.textContent = state.game.drawReveals
       .map((reveal) =>
@@ -901,6 +1068,200 @@ function renderKaput(state) {
       });
   elements.kaputRemoveButton.classList.toggle("hidden", !canChoose);
   elements.kaputGiveButton.classList.toggle("hidden", !canChoose);
+}
+
+function syncFullscreenButton() {
+  const supported = Boolean(document.fullscreenEnabled && elements.gameView.requestFullscreen);
+  const isFullscreen = document.fullscreenElement === elements.gameView;
+  elements.fullscreenButton.classList.toggle("unsupported", !supported);
+  elements.fullscreenButton.disabled = !supported;
+  elements.fullscreenButton.textContent = isFullscreen ? "↙" : "⛶";
+  elements.fullscreenButton.title = isFullscreen
+    ? t("fullscreen.exit")
+    : t("fullscreen.enter");
+  elements.fullscreenButton.setAttribute(
+    "aria-label",
+    isFullscreen ? t("fullscreen.exit") : t("fullscreen.enter")
+  );
+}
+
+async function toggleFullscreen() {
+  if (!document.fullscreenEnabled || !elements.gameView.requestFullscreen) {
+    showToast(t("fullscreen.unavailable"));
+    return;
+  }
+  try {
+    if (document.fullscreenElement === elements.gameView) {
+      await document.exitFullscreen();
+    } else {
+      await elements.gameView.requestFullscreen();
+    }
+  } catch (_error) {
+    showToast(t("fullscreen.unavailable"));
+  }
+  syncFullscreenButton();
+}
+
+function reactionContext() {
+  const canvas = elements.reactionCanvas;
+  const context = canvas.getContext("2d");
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.lineWidth = 6;
+  context.strokeStyle = "#183c31";
+  return context;
+}
+
+function clearReactionCanvas() {
+  const canvas = elements.reactionCanvas;
+  const context = reactionContext();
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#fffaf0";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+function loadReactionCanvas() {
+  clearReactionCanvas();
+  if (!savedReactionImage) return;
+  const image = new Image();
+  image.onload = () => {
+    const context = reactionContext();
+    context.drawImage(image, 0, 0, elements.reactionCanvas.width, elements.reactionCanvas.height);
+  };
+  image.src = savedReactionImage;
+}
+
+function canvasPoint(event) {
+  const rect = elements.reactionCanvas.getBoundingClientRect();
+  return {
+    x: ((event.clientX - rect.left) / rect.width) * elements.reactionCanvas.width,
+    y: ((event.clientY - rect.top) / rect.height) * elements.reactionCanvas.height,
+  };
+}
+
+function beginReactionStroke(event) {
+  event.preventDefault();
+  const point = canvasPoint(event);
+  reactionDrawing = point;
+  const context = reactionContext();
+  context.beginPath();
+  context.moveTo(point.x, point.y);
+  elements.reactionCanvas.setPointerCapture(event.pointerId);
+}
+
+function moveReactionStroke(event) {
+  if (!reactionDrawing) return;
+  event.preventDefault();
+  const point = canvasPoint(event);
+  const context = reactionContext();
+  context.lineTo(point.x, point.y);
+  context.stroke();
+  reactionDrawing = point;
+}
+
+function endReactionStroke(event) {
+  if (!reactionDrawing) return;
+  event.preventDefault();
+  reactionDrawing = null;
+}
+
+function saveReactionCanvas() {
+  savedReactionImage = elements.reactionCanvas.toDataURL("image/png");
+  localStorage.setItem("tresetaReactionDoodle", savedReactionImage);
+  return savedReactionImage;
+}
+
+function openReactionModal() {
+  loadReactionCanvas();
+  elements.reactionModal.classList.remove("hidden");
+}
+
+function closeReactionModal() {
+  elements.reactionModal.classList.add("hidden");
+}
+
+function sendReaction() {
+  if (!savedReactionImage) {
+    openReactionModal();
+    return;
+  }
+  socket.emit("reaction", { image: savedReactionImage }, (result) => {
+    if (ackError(result)) return;
+  });
+}
+
+function showReaction(reaction) {
+  if (!reaction?.image || reaction.seat == null) return;
+  const existing = $$(`.reaction-pop[data-seat="${reaction.seat}"]`);
+  existing.slice(0, Math.max(0, existing.length - 2)).forEach((node) => node.remove());
+  const bubble = document.createElement("div");
+  bubble.className = `reaction-pop reaction-seat-${reaction.seat}`;
+  bubble.dataset.seat = String(reaction.seat);
+  bubble.innerHTML = `<img src="${reaction.image}" alt="" />`;
+  elements.reactionLayer.appendChild(bubble);
+  setTimeout(() => bubble.remove(), 1900);
+}
+
+function seresRevealKey(result) {
+  return result
+    ? `${result.handNumber}:${result.context}:${result.callerSeat}:${result.accusedSeat}`
+    : "";
+}
+
+function revealNote(result) {
+  if (result.context === "trick_play") {
+    return result.accusedWasLying
+      ? t("seresReveal.trickProof")
+      : t("seresReveal.trickNoProof");
+  }
+  return result.accusedWasLying
+    ? t("seresReveal.akuzaNoProof")
+    : t("seresReveal.akuzaProof");
+}
+
+function renderSeresReveal(state) {
+  const result = state.game.lastHandResult;
+  const reveal = result?.type === "seres" ? result.reveal : null;
+  const key = seresRevealKey(result);
+  if (!reveal || !key || dismissedSeresRevealKey === key) {
+    elements.seresRevealPanel.classList.add("hidden");
+    return;
+  }
+  if (activeSeresRevealKey !== key) {
+    activeSeresRevealKey = key;
+    clearTimeout(seresRevealTimer);
+    seresRevealTimer = setTimeout(() => {
+      dismissedSeresRevealKey = key;
+      if (currentState) renderSeresReveal(currentState);
+    }, 14000);
+  }
+  const accused = state.players[reveal.accusedSeat];
+  const highlighted = new Set(reveal.highlightCardIds || []);
+  const cards = (reveal.cards || [])
+    .map((card) => {
+      const cardElement = createCard(card, "reveal");
+      if (highlighted.has(card.id)) cardElement.classList.add("proof-card");
+      return cardElement.outerHTML;
+    })
+    .join("");
+  elements.seresRevealPanel.innerHTML = `
+    <div class="seres-reveal-heading">
+      <div>
+        <span>${escapeHtml(t("seresReveal.label"))}</span>
+        <strong>${escapeHtml(
+          t("seresReveal.title", {
+            player: accused?.nickname || t("game.playerFallback"),
+          })
+        )}</strong>
+      </div>
+      <button type="button" data-close-seres-reveal aria-label="${escapeHtml(
+        t("common.close")
+      )}">×</button>
+    </div>
+    <div class="seres-reveal-cards">${cards}</div>
+    <p class="seres-reveal-note">${escapeHtml(revealNote(result))}</p>
+  `;
+  elements.seresRevealPanel.classList.remove("hidden");
 }
 
 function renderLobbyControls(state) {
@@ -1167,8 +1528,10 @@ function renderState(state) {
   renderSignals(state);
   renderAkuza(state);
   renderKaput(state);
+  renderSeresReveal(state);
   renderLobbyControls(state);
   renderScoreOverlay(state);
+  syncFullscreenButton();
 }
 
 elements.createButton = $("#createButton");
@@ -1241,6 +1604,34 @@ elements.kaputRemoveButton.addEventListener("click", () =>
 elements.kaputGiveButton.addEventListener("click", () =>
   emitIntent("chooseKaput", { option: "give_others_10" })
 );
+elements.fullscreenButton.addEventListener("click", toggleFullscreen);
+document.addEventListener("fullscreenchange", syncFullscreenButton);
+elements.reactionButton.addEventListener("click", sendReaction);
+elements.reactionEditButton.addEventListener("click", openReactionModal);
+elements.clearReactionButton.addEventListener("click", clearReactionCanvas);
+elements.saveReactionButton.addEventListener("click", () => {
+  saveReactionCanvas();
+  closeReactionModal();
+  showToast(t("reaction.saved"));
+});
+elements.sendReactionButton.addEventListener("click", () => {
+  saveReactionCanvas();
+  closeReactionModal();
+  sendReaction();
+});
+elements.reactionCanvas.addEventListener("pointerdown", beginReactionStroke);
+elements.reactionCanvas.addEventListener("pointermove", moveReactionStroke);
+elements.reactionCanvas.addEventListener("pointerup", endReactionStroke);
+elements.reactionCanvas.addEventListener("pointercancel", endReactionStroke);
+$("#closeReactionButton").addEventListener("click", closeReactionModal);
+elements.reactionModal.addEventListener("click", (event) => {
+  if (event.target === elements.reactionModal) closeReactionModal();
+});
+elements.seresRevealPanel.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-close-seres-reveal]")) return;
+  dismissedSeresRevealKey = activeSeresRevealKey;
+  elements.seresRevealPanel.classList.add("hidden");
+});
 elements.nextHandButton.addEventListener("click", () => emitIntent("nextHand"));
 elements.newMatchButton.addEventListener("click", () => emitIntent("newMatch"));
 $$("[data-signal]").forEach((button) =>
@@ -1347,10 +1738,12 @@ document.addEventListener("keydown", (event) => {
     elements.rulesModal.classList.add("hidden");
     elements.authModal.classList.add("hidden");
     elements.profileModal.classList.add("hidden");
+    elements.reactionModal.classList.add("hidden");
   }
 });
 
 socket.on("state", renderState);
+socket.on("reaction", showReaction);
 socket.on("connect", () => {
   if (activeCode && activeToken && currentState) {
     joinRoom(activeCode, activeToken);
@@ -1377,6 +1770,8 @@ async function initialize() {
   }
   updateAccountUi();
   applyRankedSetting();
+  clearReactionCanvas();
+  syncFullscreenButton();
 
   const roomFromUrl = new URLSearchParams(window.location.search).get("room");
   if (roomFromUrl) {
